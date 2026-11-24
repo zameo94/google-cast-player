@@ -77,6 +77,14 @@ Verified on 2026-11-25 with Xcode 27.2:
 * The built application launches, keeps running and quits cleanly.
 * An offscreen render of the screen confirmed the layout of the empty, selected and error states. Visual appearance and interactive drag-and-drop were not inspected automatically: macOS denied screen recording and accessibility access to the shell, so they remain manual checks.
 
+Manual checks (require a graphical session and cannot be automated on this machine):
+
+1. Launch the application and confirm the empty state appears in the main window.
+2. Drag an MP4 file onto the drop area; the card must show its name, "MP4" and its size.
+3. Use "Choose Different Video…" (or Command-O) to replace the selection.
+4. Drop a non-video file, for example a `.txt`; the error banner must explain the problem and the previous selection must stay.
+5. Click "Remove" to return to the empty state.
+
 Continuous integration: .github/workflows/ci.yml builds and tests the project on a macOS runner for pull requests and for pushes to main and dev. The workflow file parses as valid YAML, but it has not been executed on GitHub because no branch has been pushed.
 
 7. Recent Work Log
