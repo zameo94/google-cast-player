@@ -1,0 +1,36 @@
+# Gentleman Guardian Angel configuration template.
+#
+# Copy this file to `.gga` (ignored by Git) and adjust PROVIDER for your machine.
+#
+#   cp .gga.example .gga
+#   scripts/install-git-hooks.sh
+#
+# `gga run` reviews the staged files listed by FILE_PATTERNS against RULES_FILE
+# and blocks the commit unless the reviewer reports a single STATUS verdict.
+
+# AI provider used for the review. Examples:
+#   PROVIDER="claude"
+#   PROVIDER="codex"
+#   PROVIDER="gemini"
+#   PROVIDER="opencode"
+#   PROVIDER="opencode:opencode/beam-free"
+PROVIDER="opencode"
+
+# Reviewer agent profile. The repository ships `.opencode/agents/gga-reviewer.md`,
+# which answers with the single STATUS verdict that strict mode requires.
+OPENCODE_AGENT="gga-reviewer"
+
+# Files included in the review.
+FILE_PATTERNS="*.swift,*.plist,*.entitlements,*.md,*.yml,*.yaml"
+
+# Files excluded from the review.
+EXCLUDE_PATTERNS=""
+
+# Rules the review is validated against.
+RULES_FILE="AGENTS.md"
+
+# Fail when the reviewer answer cannot be parsed unambiguously.
+STRICT_MODE="true"
+
+# Provider response timeout in seconds.
+TIMEOUT="300"
