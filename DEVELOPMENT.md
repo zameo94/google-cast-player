@@ -1,83 +1,81 @@
 Google Cast Player — Development
+
 1. Current State
-Overall status: Repository foundation in progress — application implementation not yet started.
-Current development phase: Phase 0 — Repository and Development Foundation.
-Current milestone: Repository documentation and development infrastructure verification.
-Current feature branch: None confirmed.
-Current working branch: main (last reported by the user; must be rechecked before further Git operations).
-Last verified commit: d3a2b76 — added AGENTS.md & .gitignore (last confirmed repository commit; must be rechecked).
-Last verified build: Not assessed.
-Last verified test run: Not assessed.
-Last GGA review: Review reported STATUS: PASSED for ROADMAP.md and DEVELOPMENT.md, but the GGA strict-mode parser did not recognize the result and blocked the commit. The review must not be considered successfully completed by the Git hook.
-Last remote synchronization: main was last reported as up to date with origin/main. No successful push of the current documentation changes has been confirmed.
-2. Completed Work
-Only record work that has been verified in the repository or explicitly confirmed by the user.
-* Project repository created. 
-* Project instructions (AGENTS.md) established and published on main. 
-* Remote dev branch created from main. 
-* Local .atl/ directory excluded through .gitignore. 
-* Local .gga configuration excluded through .gitignore. 
-* Initial ROADMAP.md and DEVELOPMENT.md documents prepared and staged for commit. 
-3. In Progress
-* Verify the current Git working tree and staged documentation changes. 
-* Diagnose the GGA strict-mode parser issue without weakening quality checks. 
-* Verify the local pre-commit hook and GGA provider behavior. 
-* Commit the documentation changes after all applicable checks pass. 
-* Verify the final repository state before starting application implementation. 
-4. Pending Phases
-* Phase 0 — Repository and Development Foundation. 
-* Phase 1 — Native Application Foundation and Media Import. 
-* Phase 2 — Media Access, Metadata, and Compatibility. 
-* Phase 3 — Cast Device Discovery. 
-* Phase 4 — Local HTTP Media Server. 
-* Phase 5 — Cast Communication. 
-* Phase 6 — End-to-End Local Video Streaming. 
-* Phase 7 — Playback Controls and User Experience. 
-* Phase 8 — Stabilization and MVP Release. 
-Phase completion must follow the acceptance criteria in ROADMAP.md. Code implementation alone does not establish completion.
-5. Known Decisions
-* Native macOS application using Swift and SwiftUI.
-* Local video files are streamed directly from the Mac to Cast devices over the local network.
-* The local HTTP server and Google Cast communication are separate but complementary components of the streaming workflow.
-* No cloud services or external media servers.
-* No FFmpeg or transcoding in the MVP.
-* Initial compatibility priority: MP4 container, H.264 video, AAC audio.
-* Cast communication is isolated from the UI.
-* Feature branches start directly from the latest main.
-* Completed features are integrated into dev.
-* Promotion of dev to main requires explicit user authorization.
-* Pushes, Pull Requests, merges, releases, and tags require explicit user authorization.
-* AGENTS.md defines the development workflow and agent permissions.
-* ROADMAP.md defines product scope, development phases, and acceptance criteria.
-* DEVELOPMENT.md records the actual development state and verified progress.
-6. Blockers and Risks
-Active Blockers
-GGA strict-mode parsing
-* GGA's configured provider generated a review response containing STATUS: PASSED for the staged documentation files.
-* The GGA strict-mode parser nevertheless reported an ambiguous response and blocked the commit.
-* The underlying review result and the Git hook result must be treated separately.
-* The cause has not yet been established.
-* Do not disable strict mode, bypass the hook, or weaken the review requirements as a workaround.
-Next diagnostic action: Inspect the installed GGA version and the available gga run options, then determine why the provider response is not recognized by the strict-mode parser.
-Other Risks
-* The native Xcode project and application targets have not yet been verified.
-* Build and test commands have not yet been established.
-* Actual Chromecast discovery, connectivity, and playback have not yet been tested.
+Overall status: Phase 0 verified; application implementation has not started on this branch.
+Current development phase: Phase 0 — Repository and Development Foundation (complete, pending integration into dev).
+Current milestone: Native application foundation and media import.
+Current feature branch: feature/repository-foundation.
+Current working branch: feature/repository-foundation.
+Last verified commit: 0f14ad9 on main; Phase 0 commits are listed in section 7.
+Last verified build: Not applicable yet — the repository does not contain an Xcode project or Swift package.
+Last verified test run: Not applicable yet — no test target exists.
+Last quality gate run: gga v2.10.1 on the staged Phase 0 files (see section 5).
+Last remote synchronization: main matches origin/main at 0f14ad9. dev matches origin/dev at e9d955a.
+
+2. Verified Environment
+Verified on the development machine before this status was written:
+
+* macOS 26.6.2 on Apple Silicon (arm64).
+* Xcode 27.2 (build 27B52), macOS 27.2 SDK.
+* Swift 6.4.2.
+* Git repository with remotes origin/main and origin/dev.
+* gga v2.10.1 installed, backed by the OpenCode CLI 2.4.1.
+* Local pre-commit hook invoking the review gate.
+
+3. Completed Work
+Only verified work is recorded here.
+
+* Repository created under the MIT license.
+* Project instructions (AGENTS.md), product roadmap (ROADMAP.md) and this status document published.
+* dev branch created and integrated with main.
+* .gitignore excludes local AI tooling (.atl/, .gga) and macOS, Xcode, test and SwiftPM build artifacts.
+* GGA review gate is reproducible: the repository ships .opencode/agents/gga-reviewer.md, .gga.example, scripts/hooks/pre-commit and scripts/install-git-hooks.sh.
+* The review gate was verified end to end in an isolated throw-away repository: it blocks a commit with a real violation and passes clean files.
+* The hook installer was verified for install and uninstall paths.
+
+4. In Progress
+* Phase 1 — native macOS application foundation and media import.
+
+5. Quality Gate and Tooling Decisions
+* The review gate is enforced by a Git pre-commit hook installed with scripts/install-git-hooks.sh; the hook refuses to run when gga or the local .gga configuration is missing instead of skipping the review.
+* .gga stays untracked because the AI provider is a per-machine choice; .gga.example documents the required settings.
+* The review uses the project-scoped reviewer agent `.opencode/agents/gga-reviewer.md` through `OPENCODE_AGENT="gga-reviewer"`. The agent must answer with a single `STATUS:` verdict, which is what strict mode parses.
+* Reason for the dedicated agent: the previous configuration invoked the general-purpose default agent, whose free-form answers sometimes placed the verdict outside the parsed window, blocking valid commits. A reviewer scoped to the verdict contract and without tools removes that source of variability.
+
+6. Build and Test Procedures
+No application target exists yet, so no build or test command can be executed or documented.
+Phase 1 introduces the Xcode project, its scheme, the unit test target and the exact commands; this section must be updated with the verified commands at that point.
+Continuous integration is added together with the first buildable target, because a workflow cannot be validated against a repository without a project.
+
 7. Recent Work Log
-Date	Branch	Work	Verification	Commit
-Not recorded	main	Initial repository setup and project instructions	Repository and Git state previously inspected	d3a2b76
-Not recorded	main	Added initial ROADMAP.md and DEVELOPMENT.md	GGA provider reported passed; strict-mode parser blocked commit	Not committed
-8. Next Objective
-Complete Phase 0 repository verification.
-The immediate tasks are:
-1. Inspect the actual Git working tree and staged changes.
-2. Diagnose and resolve the GGA strict-mode parsing issue without bypassing quality checks.
-3. Verify the pre-commit hook and GGA review behavior.
-4. Commit the approved repository documentation changes after successful verification.
-5. Confirm the final Git and remote branch state.
-After Phase 0 is verified, begin Phase 1 with a focused native macOS SwiftUI application foundation and local video import implementation.
-Do not start Cast discovery, Cast communication, or HTTP server implementation before their planned roadmap phases.
-9. Maintenance Rules
+| Date | Branch | Work | Verification | Commit |
+| --- | --- | --- | --- | --- |
+| 2026-11-24 | main | Initial repository setup and project instructions | Repository state inspected | d3a2b76 |
+| 2026-11-24 | main | Product roadmap and development documentation | Documented | e8f9263, 59b6adf |
+| 2026-11-25 | main | AGENTS.md revised | Documented | 0f14ad9 |
+| 2026-11-25 | feature/repository-foundation | Expanded ignore rules for macOS and Xcode artifacts | Reviewed as a non-matching path, committed | 170a23f |
+| 2026-11-25 | feature/repository-foundation | Reproducible GGA review gate and hook installer | gga reviewed the staged Markdown; gate verified in an isolated repository | e9cf748 |
+
+8. Blockers and Risks
+No active blocker.
+
+Risks tracked for later phases:
+
+* No build or test command has been established, because no application target exists yet.
+* Continuous integration is not configured yet; it is added with the first buildable target.
+* Chromecast discovery, connectivity and playback have never been exercised; the corresponding phases are not started.
+* Repository branch protection and required status checks cannot be configured from this environment and must be verified on GitHub by the user.
+
+9. Next Objective
+Implement Phase 1 — native macOS application foundation and media import:
+1. Create the Xcode project, app target and unit test target.
+2. Implement the application entry point and main window.
+3. Implement native file picker, drag and drop, and selected-file presentation.
+4. Implement the media file model and import validation, with automated tests.
+5. Document the verified build and test commands, and add continuous integration.
+6. Verify the Phase 1 acceptance criteria before reporting the phase as complete.
+
+10. Maintenance Rules
 * Update this file after each meaningful development milestone.
 * Record only verified results or clearly identified user-confirmed information.
 * Keep the next objective specific and actionable.

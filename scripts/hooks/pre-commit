@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#
+# Repository pre-commit hook: runs the Gentleman Guardian Angel review gate.
+#
+# Installed by scripts/install-git-hooks.sh. The hook fails instead of skipping
+# when the review tooling is missing, so a review is never bypassed silently.
+
+set -euo pipefail
+
+if ! command -v gga >/dev/null 2>&1; then
+  echo "pre-commit: 'gga' (Gentleman Guardian Angel) is not installed." >&2
+  echo "pre-commit: install it or remove this hook with scripts/install-git-hooks.sh --uninstall" >&2
+  exit 1
+fi
+
+if [[ ! -f .gga ]]; then
+  echo "pre-commit: missing .gga review configuration." >&2
+  echo "pre-commit: run 'cp .gga.example .gga' and set PROVIDER for this machine." >&2
+  exit 1
+fi
+
+exec gga run
