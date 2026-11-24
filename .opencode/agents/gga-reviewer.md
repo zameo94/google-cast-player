@@ -27,3 +27,11 @@ The hook parses your answer mechanically, so follow this contract exactly:
 4. After the status line, report each violation on its own line using the file path,
    the violated rule, and a one-sentence explanation.
 5. Keep the answer under 30 lines, without code fences, headings, or restated rules.
+
+## Evidence requirement
+
+Report a violation only when you can quote the exact rule text and the exact code
+line that breaks it. Statements about compilation, API signatures, availability or
+runtime behaviour cannot be checked from the prompt and are not violations: the
+project is built and tested separately before this review. Never invent a finding to
+fill the answer; a compliant file requires only the status line.
