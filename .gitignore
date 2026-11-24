@@ -1,3 +1,28 @@
 # Local AI tooling
 .atl/
 .gga
+
+# macOS
+.DS_Store
+
+# Xcode build and user state
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.dSYM
+*.dSYM.zip
+*.ipa
+
+# Test, coverage and profiling output
+*.xcresult
+TestResults/
+coverage/
+
+# Swift Package Manager
+.build/
+.swiftpm/
