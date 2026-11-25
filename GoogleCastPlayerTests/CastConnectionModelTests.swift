@@ -17,6 +17,8 @@ final class FakeCastSession: CastSessionControlling {
     var onMediaStatusChange: ((CastClient.MediaStatus?) -> Void)?
     var onReceiverStopped: (() -> Void)?
     var onConnectionEnded: (() -> Void)?
+    var onVolumeChange: ((CastClient.Volume?) -> Void)?
+    private(set) var volumeLevels: [Double] = []
     var loadError: (any Error)?
 
     init(result: Result<String, any Error> = .success("web-5")) {
@@ -49,6 +51,10 @@ final class FakeCastSession: CastSessionControlling {
 
     func stopMediaPlayback() async {
         stopMediaCount += 1
+    }
+
+    func setVolume(_ level: Double) async {
+        volumeLevels.append(level)
     }
 
     func stop() async {
@@ -329,6 +335,48 @@ struct CastConnectionModelTests {
         #expect(second.startCount == 1)
         #expect(connection.state == .connected)
         #expect(connection.connectedDevice?.id == "living-room")
+    }
+
+    // MARK: - Volume
+
+    @Test func keepsTheVolumeTheSessionReports() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+
+        session.onVolumeChange?(CastClient.Volume(level: 0.35, muted: true))
+
+        #expect(connection.volume == DeviceVolume(level: 0.35, muted: true))
+    }
+
+    @Test func forwardsAVolumeChange() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+
+        await connection.setVolume(0.7)
+
+        #expect(session.volumeLevels == [0.7])
+    }
+
+    @Test func ignoresAVolumeChangeWithoutASession() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+
+        await connection.setVolume(0.7)
+
+        #expect(session.volumeLevels.isEmpty)
+    }
+
+    @Test func forgetsTheVolumeWhenDisconnecting() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+        session.onVolumeChange?(CastClient.Volume(level: 0.4, muted: false))
+
+        await connection.disconnect()
+
+        #expect(connection.volume == nil)
     }
 
     @Test func reconnectKeepsThePositionOfTheLostCast() async {

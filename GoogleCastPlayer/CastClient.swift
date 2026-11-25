@@ -62,6 +62,14 @@ final class CastClient {
         }
     }
 
+    /// Volume the receiver reports and accepts, from 0 to 1.
+    struct Volume: Equatable, Sendable {
+        /// Current level, from 0 to 1.
+        let level: Double
+        /// Whether the device is muted.
+        let muted: Bool
+    }
+
     /// What the receiver reports about the media it is playing.
     struct MediaStatus: Equatable, Sendable {
         enum PlayerState: String, Equatable, Sendable {
@@ -126,6 +134,10 @@ final class CastClient {
     var onReceiverStopped: (() -> Void)?
     /// Called once when the transport stops carrying the session.
     var onConnectionEnded: (() -> Void)?
+    /// Last volume the receiver reported.
+    private(set) var volume: Volume?
+    /// Called on every volume the receiver reports.
+    var onVolumeChange: ((Volume?) -> Void)?
     private var receiverBuffer = Data()
     private var nextRequestID = 1
     private var isConnected = false
@@ -337,6 +349,38 @@ final class CastClient {
         transport.close()
     }
 
+    /// Sets the device volume to `level`, from 0 to 1.
+    ///
+    /// The device answers with a receiver status carrying the volume it actually applied,
+    /// which is what the interface shows.
+    func setVolume(_ level: Double) async {
+        guard isConnected else {
+            return
+        }
+        let clamped = min(max(level, 0), 1)
+        let payload: [String: Any] = [
+            "type": "SET_VOLUME",
+            "requestId": takeRequestID(),
+            "volume": ["level": clamped],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
+            return
+        }
+        do {
+            try await send(
+                CastMessage(
+                    sourceID: Self.senderID,
+                    destinationID: Self.receiverID,
+                    namespace: Namespace.receiver,
+                    payload: String(decoding: data, as: UTF8.self)
+                )
+            )
+        } catch {
+            CastLog.client.error("SET_VOLUME could not be sent: \(error.localizedDescription, privacy: .public)")
+            connectionEnded()
+        }
+    }
+
     // MARK: - Incoming messages
 
     /// Applies bytes received from the device.
@@ -386,6 +430,10 @@ final class CastClient {
     }
 
     private func handleReceiver(_ message: CastMessage) {
+        // Every receiver status carries the device volume, including the answer to a
+        // launch and the answer to a volume change.
+        applyVolume(in: message.payload)
+
         // A receiver status can also report that the app stopped.
         if Self.hasStoppedReceiver(in: message.payload) {
             let wasRunning = receiverTransportID != nil
@@ -433,6 +481,15 @@ final class CastClient {
         // An idle media cannot be controlled any more, but its status stays visible.
         self.mediaSessionID = playerState == .idle ? nil : mediaSessionID
         onMediaStatus?(parsed)
+    }
+
+    /// Applies the volume a receiver-status payload reports.
+    private func applyVolume(in payload: String) {
+        guard let volume = Self.volume(in: payload) else {
+            return
+        }
+        self.volume = volume
+        onVolumeChange?(volume)
     }
 
     // MARK: - Background work
@@ -582,6 +639,18 @@ final class CastClient {
             return nil
         }
         return (transportID, application["sessionId"] as? String)
+    }
+
+    /// Reads the `status.volume` block of a receiver-status payload.
+    private static func volume(in payload: String) -> Volume? {
+        guard let data = payload.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let status = object["status"] as? [String: Any],
+              let volume = status["volume"] as? [String: Any],
+              let level = volume["level"] as? Double else {
+            return nil
+        }
+        return Volume(level: level, muted: volume["muted"] as? Bool ?? false)
     }
 
     /// Whether a receiver-status payload reports that no application is running.

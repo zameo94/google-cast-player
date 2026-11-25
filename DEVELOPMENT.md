@@ -5,10 +5,10 @@ Overall status: Phase 0 to Phase 7 on main and verified on a physical device; th
 Current development phase: Phase 8 — Stabilization and MVP Release (release candidate 1.0.0 integrated into dev; release approval pending).
 Current milestone: The release decision: signing, notarization and version tagging.
 Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev; feature/sleep-and-reconnect (Phase 8), created from main at 565f112 and merged into dev.
-Current working branch: dev; feature work happens on feature/<name> branches created from it.
+Current working branch: feature/volume-control, created from dev at the maintainer's explicit request on 2026-11-26. AGENTS.md prescribes main as the source of every feature branch; the maintainer chose dev for this one, so the branch carries the sleep-and-reconnect work that is in dev and not yet in main.
 Last verified commit: main is 565f112; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
-Last verified test run: 173 unit tests passed with xcodebuild on 2026-11-26 (see section 6).
+Last verified test run: 182 unit tests passed with xcodebuild on 2026-11-26 (see section 6).
 Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
 Last remote synchronization: main matches origin/main at 565f112. dev is ahead of origin/dev with the release candidate; the sleep-and-reconnect branch is local only; nothing has been pushed.
 
@@ -127,6 +127,8 @@ Phase 8 — stabilization and release candidate:
 * The cast lifecycle is written to the unified log (play, cast started and failed, interrupt with its reason, resume position, recovery outcome, connection lost, receiver stopped, silent device, media server listening and refusals), so a session that ends hours later can be explained with `log show`.
 * The media server accepts up to 16 simultaneous connections and logs a refusal, so a temporary backlog cannot silently starve the receiver.
 * Verification of the block above: `pmset -g log` shows the cast assertion held for 1h31m09s with the display off and on battery on 2026-11-25, so the idle-sleep and App Nap protection is observed behaviour rather than a unit test only. The wake recovery, the loss recovery and the diagnostics are covered by unit tests; the real cast that ended after those 1h31 took the app down with it (the app released the assertion, the Mac slept 5 seconds later) and the cause is not recorded, because the app wrote nothing to the unified log at the time.
+* Volume control: the client reads the volume block of every receiver status (including the launch answer), sends `SET_VOLUME` with a request id and a level clamped to 0...1, the connection model exposes it and clears it when the session ends, and `PlaybackControls` shows a slider that sends on release and displays the reported level.
+* 9 additional unit tests (182 in total) covering the volume parsing, the command payload, the clamping, the refusal without a session, the model forwarding and the reset on disconnect.
 * 25 additional unit tests (173 in total) covering the power assertion lifetime, the interrupted cast, the resume path, the wake and loss recovery attempts, the assertion kept during recovery, the lost-connection reporting, the reconnect and the position carried into a resumed load.
 
 4. In Progress
@@ -157,7 +159,7 @@ Test:
 Verified on 2026-11-25 with Xcode 27.2:
 
 * Clean Debug build succeeded with no compiler warnings.
-* Test run succeeded: 148 tests in 16 suites on 2026-11-25, and 173 tests in 17 suites on 2026-11-26. The Release configuration builds; tests run in Debug because they use `@testable`.
+* Test run succeeded: 148 tests in 16 suites on 2026-11-25, 173 in 17 suites with the sleep work, and 182 in 17 suites with volume control, both on 2026-11-26. The Release configuration builds; tests run in Debug because they use `@testable`.
 * The built application launches, keeps running and quits cleanly.
 * An offscreen render confirmed the layout of the video states. The new screen hosts a scroll view, which the offscreen renderer cannot draw, so the device section is a manual check.
 * Discovery was verified end to end against a Bonjour service registered on this machine: the browser reported the device once with its TXT record, and reported it removed when the service stopped. The test host itself cannot browse, because macOS gives it no local network access without a user decision.
@@ -236,6 +238,7 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-25 | feature/sleep-and-reconnect | Transport stores its connection before `connect()` returns | 170 tests passed in Debug; gga passed | 88fcdc6 |
 | 2026-11-26 | feature/sleep-and-reconnect | Unified-log diagnostics, the wake lock kept through recovery and recovery that starts without a wake | 173 tests passed in Debug, Release build succeeded; found after a real 1h31 cast ended and the Mac slept in 5 seconds | c335b94 |
 | 2026-11-26 | dev | Integrated the sleep-and-reconnect branch, approved by the maintainer | 173 tests re-run on dev after the merge | 588d2d9 |
+| 2026-11-26 | feature/volume-control | Volume slider for the device, reported level and `SET_VOLUME` | 182 tests passed in Debug, Release build succeeded | see section 1 |
 
 8. Blockers and Risks
 No active blocker.
