@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 struct MainScreen: View {
     let media: MediaImportModel
     let devices: DeviceDiscoveryModel
+    let connection: CastConnectionModel
 
     @State private var isFilePickerPresented = false
     @State private var isDropTargeted = false
@@ -41,6 +42,9 @@ struct MainScreen: View {
         }
         .task(id: searchID) {
             await devices.run()
+        }
+        .onChange(of: devices.selectedDeviceID) {
+            connection.disconnect()
         }
         .fileImporter(
             isPresented: $isFilePickerPresented,
@@ -263,7 +267,11 @@ struct MainScreen: View {
                 failedDeviceList(message)
             }
 
-            Text("Selecting a device only marks it. Connecting and playback are not implemented yet.")
+            if let selectedDevice = devices.selectedDevice {
+                connectionRow(selectedDevice)
+            }
+
+            Text("Connecting starts the receiver on the device. Sending the video arrives in the next step.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -307,6 +315,7 @@ struct MainScreen: View {
 
     private func deviceCard(_ device: CastDevice) -> some View {
         let isSelected = devices.selectedDeviceID == device.id
+        let isConnected = connection.state == .connected && connection.connectedDevice?.id == device.id
         return Button {
             devices.selectDevice(id: device.id)
         } label: {
@@ -330,7 +339,11 @@ struct MainScreen: View {
 
                 Spacer(minLength: 0)
 
-                if isSelected {
+                if isConnected {
+                    Label("Connected", systemImage: "checkmark.circle.fill")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color.green)
+                } else if isSelected {
                     Text("Selected")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(Color.accentColor)
@@ -341,13 +354,13 @@ struct MainScreen: View {
             .contentShape(RoundedRectangle(cornerRadius: 10))
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.08))
+                    .fill(cardFill(isSelected: isSelected, isConnected: isConnected))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(
-                        isSelected ? Color.accentColor : Color.secondary.opacity(0.2),
-                        lineWidth: isSelected ? 2 : 1
+                        cardBorder(isSelected: isSelected, isConnected: isConnected),
+                        lineWidth: isSelected || isConnected ? 2 : 1
                     )
             )
         }
@@ -355,6 +368,56 @@ struct MainScreen: View {
         .accessibilityLabel(device.name)
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func connectionRow(_ device: CastDevice) -> some View {
+        switch connection.state {
+        case .idle:
+            Button("Connect") {
+                Task { await connection.connect(to: device) }
+            }
+            .buttonStyle(.borderedProminent)
+        case .connecting:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Connecting\u{2026}")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        case .connected:
+            Label("Connected", systemImage: "checkmark.circle.fill")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(Color.green)
+        case let .failed(message):
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Not connected", systemImage: "xmark.circle.fill")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(Color.red)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Try Again") {
+                    Task { await connection.connect(to: device) }
+                }
+            }
+        }
+    }
+
+    private func cardFill(isSelected: Bool, isConnected: Bool) -> Color {
+        if isConnected {
+            return Color.green.opacity(0.14)
+        }
+        return isSelected ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.08)
+    }
+
+    private func cardBorder(isSelected: Bool, isConnected: Bool) -> Color {
+        if isConnected {
+            return .green
+        }
+        return isSelected ? Color.accentColor : Color.secondary.opacity(0.2)
     }
 
     // MARK: - Banner
