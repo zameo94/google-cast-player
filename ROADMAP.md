@@ -71,7 +71,7 @@ Each phase must have a clear implementation scope, meaningful tests, and verifia
 A phase is complete only when its acceptance criteria have been verified and its work has been integrated into main.
 Work may be integrated into dev before promotion to main, according to the Git workflow defined in AGENTS.md.
 Phase 0 — Repository and Development Foundation
-Status: Verify existing implementation.
+Status: Complete.
 Objectives:
 * Establish a reproducible development environment.
 * Verify project instructions and Git workflow.
@@ -89,7 +89,7 @@ Acceptance criteria:
 * Repository hooks work reliably where configured.
 * No unverified build, test, or CI result is reported as successful.
 Phase 1 — Native Application Foundation and Media Import
-Status: Not assessed.
+Status: Complete.
 Objectives:
 * Create the native macOS SwiftUI application structure.
 * Implement the main application window.
@@ -108,7 +108,7 @@ Acceptance criteria:
 * The selection can be removed and replaced.
 * Meaningful automated tests cover the media information model and relevant behavior.
 Phase 2 — Media Access, Metadata, and Compatibility
-Status: Not assessed.
+Status: Implemented and verified on its feature branch; pending integration into dev and promotion to main.
 Objectives:
 * Make local file access reliable.
 * Implement security-scoped resource handling where required.

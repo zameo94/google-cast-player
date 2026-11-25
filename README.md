@@ -11,11 +11,13 @@ uploaded to a cloud service, and no external media server is involved.
 Development status
 ------------------
 
-The project is in **Phase 1 — native application foundation and media import**.
-The application currently imports a local video file, shows its name, container
-format and size, and lets the user replace or remove the selection. Device
-discovery, media serving, Cast communication and playback are not implemented yet;
-see ROADMAP.md for the phased plan and acceptance criteria.
+The project is in **Phase 2 — media access, metadata and compatibility**. The
+application imports a local video file, shows its name, container format, size,
+duration, resolution and codecs, and reports whether the format matches the
+playback profile the app targets: MP4 container, H.264 video, AAC audio. That
+verdict describes the file, not a device, and it does not promise playback.
+Device discovery, media serving, Cast communication and playback are not
+implemented yet; see ROADMAP.md for the phased plan and acceptance criteria.
 
 Requirements
 ------------
@@ -59,12 +61,15 @@ Architecture
 
 * `MediaFile` and `MediaFormat` describe the selected file and are independent of
   SwiftUI and of any media framework.
-* `MediaImporter` validates a user-selected URL and produces a `MediaFile`. It does
-  not decode the container or assess Cast compatibility.
-* `MediaImportModel` owns the import state and the current error. It contains no
+* `MediaImporter` validates a user-selected URL and produces a `MediaFile`.
+* `MediaMetadataExtractor` reads duration, resolution and codecs with AVFoundation;
+  `MediaCompatibilityEvaluator` judges those values against the target profile as a
+  pure function, so the rules are testable without files.
+* `SecurityScopedFileAccess` holds and releases the access to the selected file.
+* `MediaImportModel` owns the import, access and metadata state. It contains no
   presentation logic.
 * `MediaImportScreen` renders that state and forwards user actions. It contains no
-  validation, networking or protocol code.
+  validation, extraction, networking or protocol code.
 
 Contribution workflow
 ---------------------
