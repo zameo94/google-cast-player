@@ -28,7 +28,7 @@ final class FakeCastSession: CastSessionControlling {
         loadedMedia.append(media)
     }
 
-    func stop() {
+    func stop() async {
         stopCount += 1
     }
 }
@@ -104,7 +104,7 @@ struct CastConnectionModelTests {
         let connection = model(session: session)
         await connection.connect(to: device())
 
-        connection.disconnect()
+        await connection.disconnect()
 
         #expect(connection.state == .idle)
         #expect(connection.connectedDevice == nil)

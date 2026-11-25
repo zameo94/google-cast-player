@@ -88,9 +88,9 @@ final class PlaybackModel {
     }
 
     /// Stops serving the file and closes the session with the device.
-    func stopAndDisconnect(connection: CastConnectionModel) {
+    func stopAndDisconnect(connection: CastConnectionModel) async {
         stop()
-        connection.disconnect()
+        await connection.disconnect()
     }
 
     /// MIME type the receiver should use for `file`.

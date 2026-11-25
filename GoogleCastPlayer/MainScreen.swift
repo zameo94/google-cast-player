@@ -45,7 +45,7 @@ struct MainScreen: View {
             await devices.run()
         }
         .onChange(of: devices.selectedDeviceID) {
-            connection.disconnect()
+            Task { await connection.disconnect() }
         }
         .onChange(of: connection.state) { _, newState in
             if newState != .connected {
@@ -278,7 +278,7 @@ struct MainScreen: View {
                 playbackRow(selectedDevice)
             }
 
-            Text("Casting serves the file from this Mac over the local network. Playback controls arrive in the next step.")
+            Text("Casting serves the file from this Mac over the local network. Pause, seek and reported playback state arrive in the next step.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -394,7 +394,7 @@ struct MainScreen: View {
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 Button("Cancel") {
-                    connection.disconnect()
+                    Task { await connection.disconnect() }
                 }
             }
         case .connected:
@@ -404,7 +404,7 @@ struct MainScreen: View {
                     .foregroundStyle(Color.green)
                 Spacer(minLength: 0)
                 Button("Disconnect") {
-                    connection.disconnect()
+                    Task { await connection.disconnect() }
                 }
             }
         case let .failed(message):
@@ -421,7 +421,7 @@ struct MainScreen: View {
                         Task { await connection.connect(to: device) }
                     }
                     Button("Dismiss") {
-                        connection.disconnect()
+                        Task { await connection.disconnect() }
                     }
                 }
             }
@@ -462,7 +462,7 @@ struct MainScreen: View {
                             .foregroundStyle(Color.green)
                         Spacer(minLength: 0)
                         Button("Stop") {
-                            playback.stopAndDisconnect(connection: connection)
+                            Task { await playback.stopAndDisconnect(connection: connection) }
                         }
                     }
                     Text(url.absoluteString)
@@ -480,7 +480,7 @@ struct MainScreen: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Button("Stop") {
-                        playback.stopAndDisconnect(connection: connection)
+                        Task { await playback.stopAndDisconnect(connection: connection) }
                     }
                 }
             }

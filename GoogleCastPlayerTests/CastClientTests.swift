@@ -12,6 +12,7 @@ final class ScriptedCastTransport: CastTransporting, @unchecked Sendable {
     private let lock = NSLock()
     private var sentStorage: [Data] = []
     private var waiters: [Waiter] = []
+    private var closed = false
     private var iterator: AsyncStream<Data>.AsyncIterator
     private let continuation: AsyncStream<Data>.Continuation
 
@@ -77,7 +78,12 @@ final class ScriptedCastTransport: CastTransporting, @unchecked Sendable {
         await iterator.next()
     }
 
+    var isClosed: Bool {
+        lock.withLock { closed }
+    }
+
     func close() {
+        lock.withLock { closed = true }
         continuation.finish()
     }
 
@@ -191,6 +197,45 @@ struct CastClientTests {
         #expect(mediaObject["streamType"] as? String == "BUFFERED")
         let metadata = try #require(mediaObject["metadata"] as? [String: Any])
         #expect(metadata["title"] as? String == "Holiday Clip")
+    }
+
+    @Test func stopsTheMediaAndTheReceiverBeforeClosing() async throws {
+        let (client, transport) = try await connectClient()
+        let launch = Task { try await client.launchDefaultReceiver() }
+        await transport.waitForSentFrames(2)
+        transport.push(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.receiver,
+                payload: #"{"type":"RECEIVER_STATUS","status":{"applications":[{"appId":"CC1AD845","transportId":"web-5","sessionId":"session-1"}]}}"#
+            )
+        )
+        _ = try await launch.value
+
+        client.handle(
+            CastMessage(
+                sourceID: "web-5",
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.media,
+                payload: #"{"type":"MEDIA_STATUS","status":[{"mediaSessionId":7,"playerState":"PLAYING"}]}"#
+            ).framed()
+        )
+        await client.endSession()
+
+        let sent = transport.sentMessages
+        let stopMedia = try #require(sent.first { $0.namespace == CastClient.Namespace.media })
+        #expect(stopMedia.destinationID == "web-5")
+        #expect(stopMedia.payload.contains(#""type":"STOP""#))
+        #expect(stopMedia.payload.contains(#""mediaSessionId":7"#))
+
+        let stopReceiver = try #require(sent.last { $0.namespace == CastClient.Namespace.receiver })
+        #expect(stopReceiver.destinationID == CastClient.receiverID)
+        #expect(stopReceiver.payload.contains("session-1"))
+
+        let close = try #require(sent.last { $0.namespace == CastClient.Namespace.connection })
+        #expect(close.payload == #"{"type":"CLOSE"}"#)
+        #expect(transport.isClosed)
     }
 
     @Test func answersHeartbeatPings() async throws {

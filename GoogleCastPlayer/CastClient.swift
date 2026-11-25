@@ -65,6 +65,11 @@ final class CastClient {
     private var heartbeatTask: Task<Void, Never>?
     private var launchTimeoutTask: Task<Void, Never>?
     private var pendingLaunch: PendingLaunch?
+    private var receiverTransportID: String?
+    private var receiverSessionID: String?
+    private var mediaSessionID: Int?
+    /// Last player state the receiver reported, for example `PLAYING`.
+    private(set) var playerState: String?
     private var receiverBuffer = Data()
     private var nextRequestID = 1
     private var isConnected = false
@@ -156,6 +161,46 @@ final class CastClient {
         return requestID
     }
 
+    /// Stops the media and the receiver application, then closes the transport.
+    ///
+    /// Closing the socket alone leaves the receiver playing, so the session is ended
+    /// explicitly: the media is stopped, the receiver application is stopped, and only
+    /// then the connection is closed. Commands are best effort, because the device may
+    /// already be gone.
+    func endSession() async {
+        if isConnected, let transportID = receiverTransportID, let mediaSessionID {
+            try? await send(
+                CastMessage(
+                    sourceID: Self.senderID,
+                    destinationID: transportID,
+                    namespace: Namespace.media,
+                    payload: #"{"type":"STOP","mediaSessionId":\#(mediaSessionID)}"#
+                )
+            )
+        }
+        if isConnected, let receiverSessionID {
+            try? await send(
+                CastMessage(
+                    sourceID: Self.senderID,
+                    destinationID: Self.receiverID,
+                    namespace: Namespace.receiver,
+                    payload: #"{"type":"STOP","sessionId":"\#(receiverSessionID)"}"#
+                )
+            )
+        }
+        if isConnected {
+            try? await send(
+                CastMessage(
+                    sourceID: Self.senderID,
+                    destinationID: Self.receiverID,
+                    namespace: Namespace.connection,
+                    payload: #"{"type":"CLOSE"}"#
+                )
+            )
+        }
+        disconnect()
+    }
+
     /// Closes the transport and stops the background work.
     func disconnect() {
         isConnected = false
@@ -190,6 +235,8 @@ final class CastClient {
             handleHeartbeat(message)
         case Namespace.receiver:
             handleReceiver(message)
+        case Namespace.media:
+            handleMedia(message)
         default:
             break
         }
@@ -211,14 +258,38 @@ final class CastClient {
     }
 
     private func handleReceiver(_ message: CastMessage) {
-        guard let pendingLaunch,
-              let transportID = Self.transportID(
-                  in: message.payload,
-                  forAppID: pendingLaunch.appID
-              ) else {
+        guard let pendingLaunch else {
             return
         }
-        finishLaunch(.success(transportID))
+        guard let application = Self.application(in: message.payload, forAppID: pendingLaunch.appID) else {
+            // A receiver status can also report that the app stopped.
+            if Self.hasStoppedReceiver(in: message.payload) {
+                receiverTransportID = nil
+                receiverSessionID = nil
+                mediaSessionID = nil
+                playerState = nil
+            }
+            return
+        }
+        receiverTransportID = application.transportID
+        receiverSessionID = application.sessionID
+        finishLaunch(.success(application.transportID))
+    }
+
+    private func handleMedia(_ message: CastMessage) {
+        guard let data = message.payload.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "MEDIA_STATUS",
+              let statuses = object["status"] as? [[String: Any]],
+              let status = statuses.first else {
+            return
+        }
+        if let mediaSessionID = status["mediaSessionId"] as? Int {
+            self.mediaSessionID = mediaSessionID
+        }
+        if let playerState = status["playerState"] as? String {
+            self.playerState = playerState
+        }
     }
 
     // MARK: - Background work
@@ -331,14 +402,31 @@ final class CastClient {
         return object["type"] as? String
     }
 
-    /// Finds the transport id of a running application in a receiver-status payload.
-    private static func transportID(in payload: String, forAppID appID: String) -> String? {
+    /// Finds a running application in a receiver-status payload.
+    private static func application(
+        in payload: String,
+        forAppID appID: String
+    ) -> (transportID: String, sessionID: String?)? {
         guard let data = payload.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let status = object["status"] as? [String: Any],
-              let applications = status["applications"] as? [[String: Any]] else {
+              let applications = status["applications"] as? [[String: Any]],
+              let application = applications.first(where: { $0["appId"] as? String == appID }),
+              let transportID = application["transportId"] as? String else {
             return nil
         }
-        return applications.first { $0["appId"] as? String == appID }?["transportId"] as? String
+        return (transportID, application["sessionId"] as? String)
+    }
+
+    /// Whether a receiver-status payload reports that no application is running.
+    private static func hasStoppedReceiver(in payload: String) -> Bool {
+        guard let data = payload.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "RECEIVER_STATUS",
+              let status = object["status"] as? [String: Any] else {
+            return false
+        }
+        let applications = status["applications"] as? [[String: Any]] ?? []
+        return applications.isEmpty
     }
 }

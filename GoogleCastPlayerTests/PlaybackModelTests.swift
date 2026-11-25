@@ -153,7 +153,7 @@ struct PlaybackModelTests {
         let model = PlaybackModel(server: try successServer())
         await model.play(file: file(), connection: connection)
 
-        model.stopAndDisconnect(connection: connection)
+        await model.stopAndDisconnect(connection: connection)
 
         #expect(model.state == .idle)
         #expect(connection.state == .idle)

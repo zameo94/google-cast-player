@@ -13,8 +13,8 @@ protocol CastSessionControlling: AnyObject {
     func start() async throws -> String
     /// Asks the running receiver to load `media`.
     func loadMedia(_ media: CastClient.Media, transportID: String) async throws
-    /// Closes the session.
-    func stop()
+    /// Ends the session: stops the media and the receiver, then closes.
+    func stop() async
 }
 
 extension CastClient: CastSessionControlling {
@@ -27,8 +27,8 @@ extension CastClient: CastSessionControlling {
         try await load(media, transportID: transportID)
     }
 
-    func stop() {
-        disconnect()
+    func stop() async {
+        await endSession()
     }
 }
 
@@ -77,7 +77,7 @@ final class CastConnectionModel {
             return
         }
 
-        stopSession()
+        await stopSession()
         attempt += 1
         let currentAttempt = attempt
         connectedDevice = device
@@ -90,7 +90,7 @@ final class CastConnectionModel {
         do {
             let transportID = try await session.start()
             guard currentAttempt == attempt else {
-                session.stop()
+                await session.stop()
                 return
             }
             receiverTransportID = transportID
@@ -99,7 +99,7 @@ final class CastConnectionModel {
             guard currentAttempt == attempt else {
                 return
             }
-            session.stop()
+            await session.stop()
             self.session = nil
             state = .failed(Self.message(for: error))
         }
@@ -116,16 +116,18 @@ final class CastConnectionModel {
     }
 
     /// Ends the session and returns to the idle state.
-    func disconnect() {
+    func disconnect() async {
         attempt += 1
-        stopSession()
+        await stopSession()
         connectedDevice = nil
         receiverTransportID = nil
         state = .idle
     }
 
-    private func stopSession() {
-        session?.stop()
+    private func stopSession() async {
+        if let session {
+            await session.stop()
+        }
         session = nil
     }
 
