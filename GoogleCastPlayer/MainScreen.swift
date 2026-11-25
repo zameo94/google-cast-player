@@ -278,7 +278,7 @@ struct MainScreen: View {
                 playbackRow(selectedDevice)
             }
 
-            Text("Casting serves the file from this Mac over the local network. Pause, seek and reported playback state arrive in the next step.")
+            Text("A blue card is selected, a green card is connected. Casting serves the file from this Mac over the local network; pause, seek and reported playback state arrive in the next step.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -323,68 +323,80 @@ struct MainScreen: View {
     private func deviceCard(_ device: CastDevice) -> some View {
         let isSelected = devices.selectedDeviceID == device.id
         let isConnected = connection.state == .connected && connection.connectedDevice?.id == device.id
-        return Button {
-            devices.selectDevice(id: device.id)
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "tv")
-                    .font(.system(size: 18))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                    .frame(width: 24)
-                    .accessibilityHidden(true)
+        let isConnecting = connection.state == .connecting && connection.connectedDevice?.id == device.id
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(device.name)
-                        .font(.body.weight(isSelected ? .semibold : .regular))
-                        .foregroundStyle(.primary)
-                    if let modelName = device.modelName {
-                        Text(modelName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        return HStack(spacing: 12) {
+            Button {
+                devices.selectDevice(id: device.id)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "tv")
+                        .font(.system(size: 18))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .frame(width: 24)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(device.name)
+                            .font(.body.weight(isSelected ? .semibold : .regular))
+                            .foregroundStyle(.primary)
+                        if let modelName = device.modelName {
+                            Text(modelName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                }
 
-                Spacer(minLength: 0)
-
-                if isConnected {
-                    Label("Connected", systemImage: "checkmark.circle.fill")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(Color.green)
-                } else if isSelected {
-                    Text("Selected")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(Color.accentColor)
+                    Spacer(minLength: 0)
                 }
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .contentShape(RoundedRectangle(cornerRadius: 10))
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(cardFill(isSelected: isSelected, isConnected: isConnected))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(
-                        cardBorder(isSelected: isSelected, isConnected: isConnected),
-                        lineWidth: isSelected || isConnected ? 2 : 1
-                    )
-            )
+            .buttonStyle(.plain)
+            .accessibilityLabel(device.name)
+            .accessibilityValue(isSelected ? "Selected" : "Not selected")
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+
+            deviceCardAction(device, isSelected: isSelected, isConnecting: isConnecting)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(device.name)
-        .accessibilityValue(isSelected ? "Selected" : "Not selected")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(cardFill(isSelected: isSelected, isConnected: isConnected))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(
+                    cardBorder(isSelected: isSelected, isConnected: isConnected),
+                    lineWidth: isSelected || isConnected ? 2 : 1
+                )
+        )
+    }
+
+    @ViewBuilder
+    private func deviceCardAction(
+        _ device: CastDevice,
+        isSelected: Bool,
+        isConnecting: Bool
+    ) -> some View {
+        if isConnecting {
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel("Connecting")
+        } else if isSelected {
+            Button("Connect") {
+                Task { await connection.connect(to: device) }
+            }
+            .controlSize(.small)
+            .buttonStyle(.borderedProminent)
+        }
     }
 
     @ViewBuilder
     private func connectionRow(_ device: CastDevice) -> some View {
         switch connection.state {
         case .idle:
-            Button("Connect") {
-                Task { await connection.connect(to: device) }
-            }
-            .buttonStyle(.borderedProminent)
+            EmptyView()
         case .connecting:
             HStack(spacing: 8) {
                 ProgressView()
