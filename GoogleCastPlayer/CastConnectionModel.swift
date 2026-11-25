@@ -11,8 +11,16 @@ protocol CastSessionControlling: AnyObject {
     ///
     /// - Returns: The transport id of the running receiver.
     func start() async throws -> String
+    /// Media status the receiver reports, when the session calls back.
+    var onMediaStatusChange: ((CastClient.MediaStatus?) -> Void)? { get set }
     /// Asks the running receiver to load `media`.
     func loadMedia(_ media: CastClient.Media, transportID: String) async throws
+    /// Resumes the paused media.
+    func resumePlayback() async
+    /// Pauses the playing media.
+    func pausePlayback() async
+    /// Moves the media to `position`, in seconds.
+    func seekPlayback(to position: TimeInterval) async
     /// Stops the playing media and keeps the session open.
     func stopMediaPlayback() async
     /// Ends the session: stops the media and the receiver, then closes.
@@ -25,8 +33,25 @@ extension CastClient: CastSessionControlling {
         return try await launchDefaultReceiver()
     }
 
+    var onMediaStatusChange: ((CastClient.MediaStatus?) -> Void)? {
+        get { onMediaStatus }
+        set { onMediaStatus = newValue }
+    }
+
     func loadMedia(_ media: CastClient.Media, transportID: String) async throws {
         try await load(media, transportID: transportID)
+    }
+
+    func resumePlayback() async {
+        await play()
+    }
+
+    func pausePlayback() async {
+        await pause()
+    }
+
+    func seekPlayback(to position: TimeInterval) async {
+        await seek(to: position)
     }
 
     func stopMediaPlayback() async {
@@ -62,6 +87,10 @@ final class CastConnectionModel {
     private(set) var connectedDevice: CastDevice?
     /// Receiver transport id, kept for the media load of the next phase.
     private(set) var receiverTransportID: String?
+    /// Last media status the receiver reported.
+    private(set) var mediaStatus: CastClient.MediaStatus?
+    /// When `mediaStatus` was received, used to advance the displayed position.
+    private(set) var mediaStatusReceivedAt: Date?
 
     private let makeSession: (NWEndpoint) -> any CastSessionControlling
     private var session: (any CastSessionControlling)?
@@ -97,6 +126,10 @@ final class CastConnectionModel {
         state = .connecting
 
         let session = makeSession(endpoint)
+        session.onMediaStatusChange = { [weak self] status in
+            self?.mediaStatus = status
+            self?.mediaStatusReceivedAt = status == nil ? nil : Date()
+        }
         self.session = session
 
         do {
@@ -127,12 +160,38 @@ final class CastConnectionModel {
         try await session.loadMedia(media, transportID: transportID)
     }
 
+    /// Resumes the paused media.
+    func play() async {
+        guard state == .connected, let session else {
+            return
+        }
+        await session.resumePlayback()
+    }
+
+    /// Pauses the playing media.
+    func pause() async {
+        guard state == .connected, let session else {
+            return
+        }
+        await session.pausePlayback()
+    }
+
+    /// Moves the media to `position`, in seconds.
+    func seek(to position: TimeInterval) async {
+        guard state == .connected, let session else {
+            return
+        }
+        await session.seekPlayback(to: position)
+    }
+
     /// Stops the playing media and keeps the session open.
     func stopPlayback() async {
         guard state == .connected, let session else {
             return
         }
         await session.stopMediaPlayback()
+        mediaStatus = nil
+        mediaStatusReceivedAt = nil
     }
 
     /// Ends the session and returns to the idle state.
@@ -141,6 +200,8 @@ final class CastConnectionModel {
         await stopSession()
         connectedDevice = nil
         receiverTransportID = nil
+        mediaStatus = nil
+        mediaStatusReceivedAt = nil
         state = .idle
     }
 

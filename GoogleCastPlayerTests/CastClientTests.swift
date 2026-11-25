@@ -240,6 +240,78 @@ struct CastClientTests {
         #expect(transport.isClosed)
     }
 
+    private func connectAndReportMedia(
+        _ client: CastClient,
+        _ transport: ScriptedCastTransport,
+        state: String = "PLAYING"
+    ) async throws {
+        let launch = Task { try await client.launchDefaultReceiver() }
+        await transport.waitForSentFrames(2)
+        transport.push(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.receiver,
+                payload: #"{"type":"RECEIVER_STATUS","status":{"applications":[{"appId":"CC1AD845","transportId":"web-5","sessionId":"session-1"}]}}"#
+            )
+        )
+        _ = try await launch.value
+        client.handle(
+            CastMessage(
+                sourceID: "web-5",
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.media,
+                payload: #"{"type":"MEDIA_STATUS","status":[{"mediaSessionId":7,"playerState":"\#(state)","currentTime":5.5,"media":{"duration":90.0}}]}"#
+            ).framed()
+        )
+    }
+
+    @Test func readsTheReportedMediaStatus() async throws {
+        let (client, transport) = try await connectClient()
+        try await connectAndReportMedia(client, transport, state: "PAUSED")
+
+        let status = try #require(client.mediaStatus)
+        #expect(status.mediaSessionID == 7)
+        #expect(status.playerState == .paused)
+        #expect(status.position == 5.5)
+        #expect(status.duration == 90)
+    }
+
+    @Test func sendsPlaybackCommandsWithRequestIds() async throws {
+        let (client, transport) = try await connectClient()
+        try await connectAndReportMedia(client, transport)
+
+        await client.pause()
+        await client.play()
+        await client.seek(to: 42)
+
+        let mediaCommands = transport.sentMessages.filter { $0.namespace == CastClient.Namespace.media }
+        let types = mediaCommands.compactMap { message -> String? in
+            guard let data = message.payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            return object["type"] as? String
+        }
+        #expect(types == ["PAUSE", "PLAY", "SEEK"])
+
+        let seek = try #require(mediaCommands.last)
+        let seekPayload = try #require(
+            try JSONSerialization.jsonObject(with: Data(seek.payload.utf8)) as? [String: Any]
+        )
+        #expect(seekPayload["currentTime"] as? Double == 42)
+        #expect(seekPayload["mediaSessionId"] as? Int == 7)
+        #expect(seekPayload["requestId"] as? Int != nil)
+    }
+
+    @Test func ignoresPlaybackCommandsWithoutAMediaSession() async throws {
+        let (client, transport) = try await connectClient()
+
+        await client.play()
+
+        #expect(!transport.sentMessages.contains { $0.namespace == CastClient.Namespace.media })
+    }
+
     @Test func stopsOnlyTheMediaPlayback() async throws {
         let (client, transport) = try await connectClient()
         let launch = Task { try await client.launchDefaultReceiver() }
