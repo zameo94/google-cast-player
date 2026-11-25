@@ -103,10 +103,11 @@ Do not introduce FFmpeg or transcoding into the MVP.
 They may be evaluated in a later phase only if a concrete requirement arises and the user approves the associated technical and product implications.
 7. MVP and Development Phases
 Follow the development order below unless the user explicitly approves a change.
+ROADMAP.md is the single authority for phase numbers, scope and acceptance criteria; this section states the required technical order and the completion criteria of that same work, without numbering it separately.
 The development sequence deliberately places the Local HTTP Server before Cast Communication.
 The HTTP server is an independently testable component. Its request handling, file access restrictions, MIME types, and Range support can be implemented and verified locally without requiring a physical Cast device.
 Cast Communication can then be implemented against an already established and tested media-serving component. This reduces the number of unknowns during the first end-to-end playback integration.
-Phase 1 — Foundations
+Foundations
 * Analyze macOS, Xcode, Swift, and project configuration.
 * Inspect repository structure and build settings.
 * Propose a concise initial architecture.
@@ -119,7 +120,7 @@ Phase 1 — Foundations
 * Display the selected file name, size, and format where available.
 Completion criteria:
 The application builds successfully, allows the user to select or drop a local video file, and displays its basic information.
-Phase 2 — Device Discovery
+Device Discovery
 * Discover Chromecast and Google TV devices on the local network.
 * Display discovered devices.
 * Display discovery and connection states.
@@ -127,7 +128,7 @@ Phase 2 — Device Discovery
 * Handle discovery errors and the absence of available devices.
 Completion criteria:
 Actual available devices are discovered and correctly displayed.
-Phase 3 — Local HTTP Server
+Local HTTP Server
 * Implement the integrated local HTTP server.
 * Serve only the selected file.
 * Implement GET and HEAD requests where required.
@@ -140,7 +141,7 @@ Phase 3 — Local HTTP Server
 Completion criteria:
 The selected file is served correctly over the local network. HTTP behavior, file access restrictions, and Range support are verified through appropriate automated tests.
 The server must be independently testable without requiring Cast communication or a physical Cast device.
-Phase 4 — Cast Communication
+Cast Communication
 * Verify the selected technical solution for Google Cast.
 * Implement Cast communication in an isolated component.
 * Establish connections to real devices.
@@ -149,14 +150,14 @@ Phase 4 — Cast Communication
 Completion criteria:
 A real connection has been verified with a compatible device.
 The Cast implementation must use the previously established HTTP server interface without introducing unnecessary coupling between the two components.
-Phase 5 — First Playback
+First Playback
 * Send the local HTTP URL to the Cast device.
 * Start playback of a compatible MP4 H.264/AAC file.
 * Handle errors and interruptions.
 * Verify actual playback on physical hardware.
 Completion criteria:
 A real video is playing on a Chromecast or Google TV device using the integrated local HTTP server.
-Phase 6 — Playback Controls
+Playback Controls
 * Play.
 * Pause.
 * Stop.
