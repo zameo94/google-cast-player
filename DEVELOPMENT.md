@@ -238,7 +238,7 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-25 | feature/sleep-and-reconnect | Transport stores its connection before `connect()` returns | 170 tests passed in Debug; gga passed | 88fcdc6 |
 | 2026-11-26 | feature/sleep-and-reconnect | Unified-log diagnostics, the wake lock kept through recovery and recovery that starts without a wake | 173 tests passed in Debug, Release build succeeded; found after a real 1h31 cast ended and the Mac slept in 5 seconds | c335b94 |
 | 2026-11-26 | dev | Integrated the sleep-and-reconnect branch, approved by the maintainer | 173 tests re-run on dev after the merge | 588d2d9 |
-| 2026-11-26 | feature/volume-control | Volume slider for the device, reported level and `SET_VOLUME` | 182 tests passed in Debug, Release build succeeded | see section 1 |
+| 2026-11-26 | feature/volume-control | Volume slider for the device, reported level and `SET_VOLUME` | 182 tests passed in Debug, Release build succeeded; gga rejected the UI reading a Cast type and it now maps to DeviceVolume | 828cd23 |
 
 8. Blockers and Risks
 No active blocker.
