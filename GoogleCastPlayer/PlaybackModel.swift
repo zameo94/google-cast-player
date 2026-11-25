@@ -40,6 +40,14 @@ struct PlaybackSnapshot: Equatable, Sendable {
     let receivedAt: Date?
 }
 
+/// Device volume as the interface needs it, independent of the Cast protocol.
+struct DeviceVolume: Equatable, Sendable {
+    /// Current level, from 0 to 1.
+    let level: Double
+    /// Whether the device is muted.
+    let muted: Bool
+}
+
 /// A connected Cast session that can receive media.
 @MainActor
 protocol CastMediaLoading: AnyObject {

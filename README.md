@@ -20,10 +20,11 @@ Receiver and reports the state the device confirms. Casting a video starts the l
 HTTP server for that file and hands the URL to the device, so the receiver fetches the
 media directly from the Mac.
 
-Play, pause and seek, together with the state the device reports, are implemented on
-the playback-controls branch and are covered by tests; they still need a hardware
-check before they count as verified. Stopping the cast closes the server. See
-ROADMAP.md for the phased plan and acceptance criteria.
+Play, pause and seek, together with the state the device reports, were confirmed on a
+Google TV and are covered by tests. The window also carries volume controls for the
+device itself: the level and the mute state shown are the ones the receiver reports, the
+level is sent when the slider is released, and the speaker button toggles mute. Stopping the cast closes the server. See ROADMAP.md for the
+phased plan and acceptance criteria.
 
 Requirements
 ------------

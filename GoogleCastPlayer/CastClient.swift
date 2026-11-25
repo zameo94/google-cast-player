@@ -23,7 +23,7 @@ final class CastClient {
     enum ClientError: Error, Equatable, LocalizedError {
         case notConnected
         case receiverLaunchTimedOut
-        case receiverRejected
+        case cannotDescribeMedia
 
         var errorDescription: String? {
             switch self {
@@ -31,8 +31,8 @@ final class CastClient {
                 return "The device is not connected."
             case .receiverLaunchTimedOut:
                 return "The device did not start the receiver in time."
-            case .receiverRejected:
-                return "The device refused to start the receiver."
+            case .cannotDescribeMedia:
+                return "The media request could not be built."
             }
         }
     }
@@ -60,6 +60,14 @@ final class CastClient {
             self.title = title
             self.currentTime = currentTime
         }
+    }
+
+    /// Volume the receiver reports and accepts, from 0 to 1.
+    struct Volume: Equatable, Sendable {
+        /// Current level, from 0 to 1.
+        let level: Double
+        /// Whether the device is muted.
+        let muted: Bool
     }
 
     /// What the receiver reports about the media it is playing.
@@ -126,6 +134,10 @@ final class CastClient {
     var onReceiverStopped: (() -> Void)?
     /// Called once when the transport stops carrying the session.
     var onConnectionEnded: (() -> Void)?
+    /// Last volume the receiver reported.
+    private(set) var volume: Volume?
+    /// Called on every volume the receiver reports.
+    var onVolumeChange: ((Volume?) -> Void)?
     private var receiverBuffer = Data()
     private var nextRequestID = 1
     private var isConnected = false
@@ -211,6 +223,7 @@ final class CastClient {
         )
 
         let requestID = takeRequestID()
+        let payload = try Self.loadPayload(media: media, requestID: requestID)
         mediaSessionID = nil
         mediaStatus = nil
         onMediaStatus?(nil)
@@ -219,7 +232,7 @@ final class CastClient {
                 sourceID: Self.senderID,
                 destinationID: transportID,
                 namespace: Namespace.media,
-                payload: Self.loadPayload(media: media, requestID: requestID)
+                payload: payload
             )
         )
         return requestID
@@ -337,6 +350,46 @@ final class CastClient {
         transport.close()
     }
 
+    /// Sets the device volume to `level`, from 0 to 1.
+    ///
+    /// The device answers with a receiver status carrying the volume it actually applied,
+    /// which is what the interface shows.
+    func setVolume(_ level: Double) async {
+        await sendVolumeChange(["level": min(max(level, 0), 1)])
+    }
+
+    /// Mutes or unmutes the device, keeping its level.
+    func setMuted(_ muted: Bool) async {
+        await sendVolumeChange(["muted": muted])
+    }
+
+    private func sendVolumeChange(_ volume: [String: Any]) async {
+        guard isConnected else {
+            return
+        }
+        let payload: [String: Any] = [
+            "type": "SET_VOLUME",
+            "requestId": takeRequestID(),
+            "volume": volume,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
+            return
+        }
+        do {
+            try await send(
+                CastMessage(
+                    sourceID: Self.senderID,
+                    destinationID: Self.receiverID,
+                    namespace: Namespace.receiver,
+                    payload: String(decoding: data, as: UTF8.self)
+                )
+            )
+        } catch {
+            CastLog.client.error("SET_VOLUME could not be sent: \(error.localizedDescription, privacy: .public)")
+            connectionEnded()
+        }
+    }
+
     // MARK: - Incoming messages
 
     /// Applies bytes received from the device.
@@ -386,6 +439,10 @@ final class CastClient {
     }
 
     private func handleReceiver(_ message: CastMessage) {
+        // Every receiver status carries the device volume, including the answer to a
+        // launch and the answer to a volume change.
+        applyVolume(in: message.payload)
+
         // A receiver status can also report that the app stopped.
         if Self.hasStoppedReceiver(in: message.payload) {
             let wasRunning = receiverTransportID != nil
@@ -433,6 +490,15 @@ final class CastClient {
         // An idle media cannot be controlled any more, but its status stays visible.
         self.mediaSessionID = playerState == .idle ? nil : mediaSessionID
         onMediaStatus?(parsed)
+    }
+
+    /// Applies the volume a receiver-status payload reports.
+    private func applyVolume(in payload: String) {
+        guard let volume = Self.volume(in: payload) else {
+            return
+        }
+        self.volume = volume
+        onVolumeChange?(volume)
     }
 
     // MARK: - Background work
@@ -537,7 +603,7 @@ final class CastClient {
         return nextRequestID
     }
 
-    private static func loadPayload(media: Media, requestID: Int) -> String {
+    private static func loadPayload(media: Media, requestID: Int) throws -> String {
         var mediaObject: [String: Any] = [
             "contentId": media.contentURL.absoluteString,
             "streamType": media.streamType,
@@ -554,7 +620,7 @@ final class CastClient {
             "currentTime": media.currentTime,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
-            return "{}"
+            throw ClientError.cannotDescribeMedia
         }
         return String(decoding: data, as: UTF8.self)
     }
@@ -582,6 +648,18 @@ final class CastClient {
             return nil
         }
         return (transportID, application["sessionId"] as? String)
+    }
+
+    /// Reads the `status.volume` block of a receiver-status payload.
+    private static func volume(in payload: String) -> Volume? {
+        guard let data = payload.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let status = object["status"] as? [String: Any],
+              let volume = status["volume"] as? [String: Any],
+              let level = volume["level"] as? Double else {
+            return nil
+        }
+        return Volume(level: level, muted: volume["muted"] as? Bool ?? false)
     }
 
     /// Whether a receiver-status payload reports that no application is running.

@@ -18,6 +18,12 @@ protocol CastSessionControlling: AnyObject {
     var onReceiverStopped: (() -> Void)? { get set }
     /// Called when the transport stops carrying the session, for example after a sleep.
     var onConnectionEnded: (() -> Void)? { get set }
+    /// Volume the receiver reports, when the session calls back.
+    var onVolumeChange: ((CastClient.Volume?) -> Void)? { get set }
+    /// Sets the device volume, from 0 to 1.
+    func setVolume(_ level: Double) async
+    /// Mutes or unmutes the device.
+    func setMuted(_ muted: Bool) async
     /// Asks the running receiver to load `media`.
     func loadMedia(_ media: CastClient.Media, transportID: String) async throws
     /// Resumes the paused media.
@@ -96,6 +102,8 @@ final class CastConnectionModel {
     private(set) var mediaStatus: CastClient.MediaStatus?
     /// When `mediaStatus` was received, used to advance the displayed position.
     private(set) var mediaStatusReceivedAt: Date?
+    /// Volume the receiver last reported, in app types.
+    private(set) var volume: DeviceVolume?
     /// Position, in seconds, the cast reached, kept after the status is cleared so an
     /// interrupted cast can be resumed where it stopped.
     private(set) var resumePosition: TimeInterval?
@@ -187,6 +195,7 @@ final class CastConnectionModel {
         }
         connectedDevice = device
         receiverTransportID = nil
+        volume = nil
         state = .connecting
 
         let session = makeSession(endpoint)
@@ -198,6 +207,9 @@ final class CastConnectionModel {
         }
         session.onConnectionEnded = { [weak self] in
             self?.connectionLost()
+        }
+        session.onVolumeChange = { [weak self] volume in
+            self?.volume = volume.map { DeviceVolume(level: $0.level, muted: $0.muted) }
         }
         self.session = session
 
@@ -254,6 +266,22 @@ final class CastConnectionModel {
         await session.seekPlayback(to: position)
     }
 
+    /// Sets the device volume, from 0 to 1, and keeps showing what the device reports.
+    func setVolume(_ level: Double) async {
+        guard state == .connected, let session else {
+            return
+        }
+        await session.setVolume(level)
+    }
+
+    /// Mutes or unmutes the device, keeping the level the device reports.
+    func setMuted(_ muted: Bool) async {
+        guard state == .connected, let session else {
+            return
+        }
+        await session.setMuted(muted)
+    }
+
     /// Stops the playing media and keeps the session open.
     func stopPlayback() async {
         guard state == .connected, let session else {
@@ -272,6 +300,7 @@ final class CastConnectionModel {
         resumePosition = nil
         mediaStatus = nil
         mediaStatusReceivedAt = nil
+        volume = nil
         state = .idle
     }
 
