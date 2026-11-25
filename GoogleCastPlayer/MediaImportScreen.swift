@@ -1,10 +1,10 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Main window content: import one local video file and present the selection.
+/// Main window content: import one local video file and present what is known about it.
 ///
 /// The view renders model state and forwards user actions. It contains no file
-/// validation and no Cast or media-serving behaviour.
+/// validation, no metadata extraction and no Cast or media-serving behaviour.
 struct MediaImportScreen: View {
     let model: MediaImportModel
 
@@ -29,6 +29,9 @@ struct MediaImportScreen: View {
         }
         .padding(24)
         .frame(minWidth: 520, minHeight: 420, alignment: .topLeading)
+        .task(id: model.selectedFile?.id) {
+            await model.loadMetadata()
+        }
         .fileImporter(
             isPresented: $isFilePickerPresented,
             allowedContentTypes: [.movie],
@@ -120,13 +123,15 @@ struct MediaImportScreen: View {
                         .font(.headline)
                         .lineLimit(2)
                         .textSelection(.enabled)
-                    Text(detailLine(for: selectedFile))
+                    Text(sizeLine(for: selectedFile))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer(minLength: 0)
             }
+
+            metadataSection
 
             HStack(spacing: 12) {
                 Button("Choose Different Video\u{2026}") {
@@ -155,7 +160,55 @@ struct MediaImportScreen: View {
         )
     }
 
-    private func detailLine(for selectedFile: MediaFile) -> String {
+    @ViewBuilder
+    private var metadataSection: some View {
+        switch model.metadataState {
+        case .loading:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Reading media information\u{2026}")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        case let .available(metadata, compatibility):
+            VStack(alignment: .leading, spacing: 6) {
+                compatibilityLabel(compatibility)
+
+                Text(metadata.summaryLine)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+
+                if let audioLine = metadata.audioLine {
+                    Text(audioLine)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                ForEach(compatibility.reasons.indices, id: \.self) { index in
+                    Text(compatibility.reasons[index])
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        case let .unavailable(message):
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .none:
+            EmptyView()
+        }
+    }
+
+    private func compatibilityLabel(_ compatibility: MediaCompatibility) -> some View {
+        let descriptor = compatibility.descriptor
+        return Label(descriptor.title, systemImage: descriptor.symbolName)
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(descriptor.color)
+            .accessibilityLabel("Compatibility: \(descriptor.title)")
+    }
+
+    private func sizeLine(for selectedFile: MediaFile) -> String {
         let size = selectedFile.byteCount.formatted(.byteCount(style: .file))
         return "\(selectedFile.format.displayName) \u{00B7} \(size)"
     }
@@ -182,5 +235,52 @@ struct MediaImportScreen: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color.orange.opacity(0.12))
         )
+    }
+}
+
+private extension MediaMetadata {
+    /// One line describing duration, resolution and video codec when known.
+    var summaryLine: String {
+        var parts: [String] = []
+        if let duration {
+            parts.append(duration >= .seconds(3600)
+                ? duration.formatted(.time(pattern: .hourMinuteSecond))
+                : duration.formatted(.time(pattern: .minuteSecond)))
+        }
+        if let track = videoTracks.first {
+            parts.append(track.codec.displayName)
+            parts.append("\(track.width) \u{00D7} \(track.height)")
+        } else {
+            parts.append("No video track reported")
+        }
+        return parts.joined(separator: " \u{00B7} ")
+    }
+
+    /// One line describing the audio, or `nil` when the file reports no audio track.
+    var audioLine: String? {
+        guard !audioTracks.isEmpty else {
+            return "No audio track"
+        }
+        let codecs = audioTracks.map(\.codec.displayName).joined(separator: ", ")
+        return "Audio: \(codecs)"
+    }
+}
+
+private extension MediaCompatibility {
+    struct Descriptor {
+        let title: String
+        let symbolName: String
+        let color: Color
+    }
+
+    var descriptor: Descriptor {
+        switch status {
+        case .compatible:
+            return Descriptor(title: "Format supported", symbolName: "checkmark.circle.fill", color: .green)
+        case .uncertain:
+            return Descriptor(title: "May not be compatible", symbolName: "questionmark.circle.fill", color: .orange)
+        case .unsupported:
+            return Descriptor(title: "Not supported", symbolName: "xmark.circle.fill", color: .red)
+        }
     }
 }
