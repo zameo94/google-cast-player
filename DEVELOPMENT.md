@@ -1,16 +1,16 @@
 Google Cast Player — Development
 
 1. Current State
-Overall status: Phase 0 to Phase 3 on main, with physical-device discovery still pending; Phase 4 verified and integrated into dev.
-Current development phase: Phase 4 — Local HTTP Media Server (acceptance criteria verified; integrated into dev, not yet promoted to main).
-Current milestone: Promotion of dev to main and Phase 5 preparation.
-Current feature branches: feature/local-http-media-server (Phase 4), created from main at bcf28e3 and merged into dev.
-Current working branch: dev, used only to integrate completed feature branches; feature work happens on feature/<name> branches.
-Last verified commit: main is bcf28e3; feature commits are listed in section 7.
+Overall status: Phase 0 to Phase 4 on main, with physical-device discovery still pending; Phase 5 implemented on its feature branch, real-device verification pending.
+Current development phase: Phase 5 — Cast Communication (implemented; protocol and state verified by tests, real-device verification pending).
+Current milestone: Real-device verification of the connection, then integration.
+Current feature branches: feature/cast-communication (Phase 5), created from main at c31a80b.
+Current working branch: feature/cast-communication.
+Last verified commit: main is c31a80b; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
-Last verified test run: 104 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
+Last verified test run: 125 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
 Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
-Last remote synchronization: main matches origin/main at bcf28e3. dev is ahead of origin/dev with the integrated Phase 4 work; nothing has been pushed.
+Last remote synchronization: main matches origin/main at c31a80b. The Phase 5 branch has not been pushed.
 
 2. Verified Environment
 Verified on the development machine before this status was written:
@@ -78,9 +78,19 @@ Phase 4 — local HTTP media server:
 * `LocalNetworkAddress` resolves the Mac's primary IPv4 address so the returned URL is reachable from the network.
 * 31 additional unit tests (104 in total), including loopback integration tests for full, ranged, HEAD, 404, 405, 400 and 416 responses, plus lifecycle checks.
 
+Phase 5 — Cast communication:
+
+* `CastMessage` encodes and decodes Cast V2 protobuf messages by hand, with length-prefixed framing, so the project still has no third-party dependency.
+* `TLSCastTransport` connects to the device endpoint over TLS and accepts the device's self-signed certificate, which is what Cast devices present.
+* `CastClient` runs the protocol the app needs: the connection namespace, heartbeat replies and its own pings, launching the Default Media Receiver, and sending a load command with the media URL, content type and stream type.
+* `CastDevice` now carries the Bonjour endpoint discovery reported, so a session can be opened without resolving the service again.
+* `CastConnectionModel` exposes real session states: idle, connecting, connected and failed with the reason the device or transport reported.
+* The window shows the state: a Connect button, a spinner while connecting, a green Connected label and card, and a red failure with the message and a retry.
+* 21 additional unit tests (125 in total) covering message encoding and framing, the client handshake against a scripted transport, heartbeat behaviour, load payloads, timeouts, transport loss and the connection state machine.
+
 4. In Progress
-* Promotion of dev to main: Phase 4 is integrated and requires explicit user approval to reach main.
-* Phase 5 (Cast communication) has not started and waits for the promotion of dev to main.
+* Real-device verification of the Cast connection: no physical device has confirmed the handshake yet.
+* Phase 6 (end-to-end streaming) has not started and waits for the Phase 5 verification.
 
 5. Quality Gate and Tooling Decisions
 * The review gate is enforced by a Git pre-commit hook installed with scripts/install-git-hooks.sh; the hook refuses to run when gga or the local .gga configuration is missing instead of skipping the review.
@@ -104,7 +114,7 @@ Test:
 Verified on 2026-11-25 with Xcode 27.2:
 
 * Clean Debug build succeeded with no compiler warnings.
-* Test run succeeded: 104 tests in 12 suites.
+* Test run succeeded: 125 tests in 15 suites.
 * The built application launches, keeps running and quits cleanly.
 * An offscreen render confirmed the layout of the video states. The new screen hosts a scroll view, which the offscreen renderer cannot draw, so the device section is a manual check.
 * Discovery was verified end to end against a Bonjour service registered on this machine: the browser reported the device once with its TXT record, and reported it removed when the service stopped. The test host itself cannot browse, because macOS gives it no local network access without a user decision.
@@ -128,6 +138,8 @@ Note: the verdict describes the container and codecs only. Actual playback on a 
 Continuous integration: .github/workflows/ci.yml builds and tests the project on a macOS runner for pull requests and for pushes to main and dev. The workflow file parses as valid YAML, but it has not been executed on GitHub because no branch has been pushed.
 
 7. Recent Work Log
+The log is chronological: each row records what happened on that date, not the current state, which section 1 reports.
+
 | Date | Branch | Work | Verification | Commit |
 | --- | --- | --- | --- | --- |
 | 2026-11-24 | main | Initial repository setup and project instructions | Repository state inspected | d3a2b76 |
@@ -153,6 +165,9 @@ Continuous integration: .github/workflows/ci.yml builds and tests the project on
 | 2026-11-25 | main | Pull request #4 merged dev into main | Build and tests verified on dev before the merge | bcf28e3 |
 | 2026-11-25 | feature/local-http-media-server | Local HTTP server with range support, access restriction and lifecycle | 104 tests passed; the file was fetched over the LAN address byte for byte | 0d0f1be |
 | 2026-11-25 | dev | Integrated the Phase 4 branch | Build and tests re-run on dev after the merge | see section 6 |
+| 2026-11-25 | main | Pull request #5 merged dev into main | Build and tests verified on dev before the merge | c31a80b |
+| 2026-11-25 | feature/cast-communication | Cast V2 message codec, TLS transport and protocol client | 125 tests passed; gga rejected a polling helper and it was replaced by an event wait | 25d6c64 |
+| 2026-11-25 | feature/cast-communication | Connection state and the connection UI | 125 tests passed | 0de3462 |
 | 2026-11-25 | dev | Integrated the Phase 3 branch | Build and tests re-run on dev after the merge | see section 6 |
 
 8. Blockers and Risks
@@ -160,10 +175,12 @@ No active blocker.
 
 Risks and pending verification:
 
-* Phase 0 to Phase 3 reached main through pull requests #2, #3 and #4. Phase 4 is integrated into dev and needs promotion to main before ROADMAP.md allows it to be marked complete.
+* Phase 0 to Phase 4 reached main through pull requests #2 to #5. Phase 5 is implemented on its branch; its acceptance requires a connection verified against a real device, which has not happened yet.
 * Discovery has not seen a physical Cast device yet: it was verified against a Bonjour service registered on this machine, which exercises the same browser path. The acceptance criterion about real devices needs a device powered on and reachable.
 * The test host of the automated suite cannot browse the network, because macOS grants local network access to an app only after the user allows it. Discovery therefore has no automated network test.
 * Continuous integration has not run on GitHub yet; it can only be verified after the first push.
+* The Cast client accepts the device's self-signed certificate, as Cast requires; the session is therefore trusted because it is on the local network, not because of a certificate chain.
+* Nothing yet ties the connection to the media server: the receiver is started but no media URL is sent, so a connected session shows the receiver's idle screen.
 * The media server speaks plain HTTP with no authentication beyond the unguessable per-session path. It is meant for a trusted local network and only while a session needs it; the server is not exposed outside the LAN by the app.
 * The server is not wired into the window yet: nothing starts it automatically, and Phase 6 owns that lifecycle. Its behavior is covered by tests instead.
 * Chromecast discovery, connectivity and playback have never been exercised; the corresponding phases are not started.
@@ -173,10 +190,10 @@ Risks and pending verification:
 * The review gate depends on the locally configured AI provider. A review that misjudges valid code blocks the commit until it is rerun; build and test results remain the authoritative verification.
 
 9. Next Objective
-Promote Phase 4 and prepare Phase 5:
-1. Push dev and verify that the GitHub Actions workflow runs successfully on it (pushing requires explicit user approval).
-2. Authorize the promotion of dev to main so Phase 4 can be marked complete.
-3. Only then start Phase 5 — Cast communication — following ROADMAP.md.
+Verify Phase 5 on hardware and integrate it:
+1. Connect to a real device from the app and confirm the receiver starts and the state turns green (manual check, needs the device on the network).
+2. Record the outcome here, then integrate feature/cast-communication into dev and promote it with explicit user approval.
+3. Only then start Phase 6 — end-to-end local video streaming — following ROADMAP.md.
 
 Do not start media serving, Cast communication or playback before their planned phases.
 

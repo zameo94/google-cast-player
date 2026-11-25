@@ -11,15 +11,16 @@ uploaded to a cloud service, and no external media server is involved.
 Development status
 ------------------
 
-The project is in **Phase 4 — local HTTP media server**. The application imports a
+The project is in **Phase 5 — Cast communication**. The application imports a
 local video file, reports its name, container format, size, duration, resolution
 and codecs, judges the format against the playback profile the app targets (MP4,
-H.264, AAC), and lists the Chromecast and Google TV devices it finds on the local
-network so one can be selected. A local HTTP server can serve the selected file
-with byte-range support; it is not wired into the window yet. That verdict
-describes the file, not a device, and it does not promise playback. Cast
-communication and playback are not implemented yet; see ROADMAP.md for the phased
-plan and acceptance criteria.
+H.264, AAC), lists the Chromecast and Google TV devices on the local network,
+and can open a session with a selected device: it connects over TLS, starts the
+Default Media Receiver and reports the state the device confirms. A local HTTP
+server can serve the selected file with byte-range support, and the client can
+send a load command; wiring the two into a playback session is the next step.
+The format verdict describes the file, not a device. See ROADMAP.md for the
+phased plan and acceptance criteria.
 
 Requirements
 ------------
@@ -79,7 +80,11 @@ Architecture
 * `LocalMediaServer` serves one file over HTTP with byte ranges, behind an
   unguessable path; `HTTPRequest` and `HTTPByteRange` hold the parsing rules and
   `LocalNetworkAddress` resolves the address a receiver can reach.
-* `MainScreen` renders both models and forwards user actions. It contains no
+* `CastMessage`, `TLSCastTransport` and `CastClient` implement the Cast V2 protocol
+  the app needs: message framing, the connection and heartbeat namespaces, receiver
+  launch and the media load command. `CastConnectionModel` owns the session state
+  the window shows.
+* `MainScreen` renders the models and forwards user actions. It contains no
   validation, extraction, networking or protocol code.
 
 Contribution workflow

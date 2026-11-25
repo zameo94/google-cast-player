@@ -138,7 +138,7 @@ Acceptance criteria:
 * Network and permission errors are understandable.
 * Discovery logic is separated from the UI and covered by appropriate tests.
 Phase 4 — Local HTTP Media Server
-Status: Implemented, verified and integrated into dev; promotion to main pending.
+Status: Complete.
 Objectives:
 * Implement the integrated local HTTP server.
 * Bind the server to an appropriate local network interface.
@@ -162,7 +162,7 @@ Acceptance criteria:
 * The server can be stopped without leaving resources running.
 * No public Internet exposure or cloud media transfer is required.
 Phase 5 — Cast Communication
-Status: Not assessed.
+Status: Implemented; the protocol, message handling and session state are covered by tests, real-device verification is still pending.
 Objectives:
 * Evaluate the available Google Cast SDK and protocol implementation options.
 * Verify macOS compatibility, licensing, maintenance status, and technical constraints.
