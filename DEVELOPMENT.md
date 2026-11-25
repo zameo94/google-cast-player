@@ -85,7 +85,7 @@ Phase 5 — Cast communication:
 * `CastClient` runs the protocol the app needs: the connection namespace, heartbeat replies and its own pings, launching the Default Media Receiver, and sending a load command with the media URL, content type and stream type.
 * `CastDevice` now carries the Bonjour endpoint discovery reported, so a session can be opened without resolving the service again.
 * `CastConnectionModel` exposes real session states: idle, connecting, connected and failed with the reason the device or transport reported.
-* The window shows the state: a Connect button, a spinner with Cancel while connecting, a green Connected label and card with Disconnect, and a red failure with the message, a retry and a dismiss action.
+* The window shows the state on the device card itself: a selected card is blue and offers Connect, a spinner appears on it while connecting, the card turns green once connected, and the session row offers Disconnect; a failure shows the reason with retry and dismiss.
 * 21 additional unit tests (125 in total) covering message encoding and framing, the client handshake against a scripted transport, heartbeat behaviour, load payloads, timeouts, transport loss and the connection state machine.
 
 Phase 6 — end-to-end local video streaming:
@@ -187,6 +187,7 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-25 | feature/end-to-end-streaming | Stop the media and the receiver before closing the session | 134 tests passed; found because disconnecting left the receiver playing on hardware | d35e6d3 |
 | 2026-11-25 | feature/end-to-end-streaming | Stop commands now carry request ids, and the stop runs before the server is stopped | 134 tests passed; the missing request id explains the stop being ignored on hardware | ab1cac5 |
 | 2026-11-25 | feature/end-to-end-streaming | Stop the media only, leaving the session open, and keep Disconnect for ending it | 136 tests passed | 50ebf78 |
+| 2026-11-25 | feature/end-to-end-streaming | Connect from the device card, with blue for selection and green for connection | 136 tests passed | 2e272b5 |
 | 2026-11-25 | dev | Integrated the Phase 3 branch | Build and tests re-run on dev after the merge | see section 6 |
 
 8. Blockers and Risks
