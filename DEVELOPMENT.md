@@ -4,8 +4,8 @@ Google Cast Player — Development
 Overall status: Phase 0 to Phase 7 on main and verified on a physical device; the Phase 8 release candidate is integrated into dev, with the release decision pending.
 Current development phase: Phase 8 — Stabilization and MVP Release (release candidate 1.0.0 integrated into dev; release approval pending).
 Current milestone: The release decision: signing, notarization and version tagging.
-Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev; feature/sleep-and-reconnect (Phase 8), created from main at 565f112 and not yet integrated.
-Current working branch: feature/sleep-and-reconnect; dev is used only to integrate completed feature branches.
+Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev; feature/sleep-and-reconnect (Phase 8), created from main at 565f112 and merged into dev.
+Current working branch: dev; feature work happens on feature/<name> branches created from it.
 Last verified commit: main is 565f112; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
 Last verified test run: 173 unit tests passed with xcodebuild on 2026-11-26 (see section 6).
@@ -235,6 +235,7 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-25 | feature/sleep-and-reconnect | Cast power assertion, interrupted cast state, wake watcher and automatic resume at the last position | 170 tests passed in Debug, Release build succeeded; gga passed | d087878 |
 | 2026-11-25 | feature/sleep-and-reconnect | Transport stores its connection before `connect()` returns | 170 tests passed in Debug; gga passed | 88fcdc6 |
 | 2026-11-26 | feature/sleep-and-reconnect | Unified-log diagnostics, the wake lock kept through recovery and recovery that starts without a wake | 173 tests passed in Debug, Release build succeeded; found after a real 1h31 cast ended and the Mac slept in 5 seconds | c335b94 |
+| 2026-11-26 | dev | Integrated the sleep-and-reconnect branch, approved by the maintainer | 173 tests re-run on dev after the merge | 588d2d9 |
 
 8. Blockers and Risks
 No active blocker.
