@@ -23,6 +23,15 @@ struct MediaMetadataTests {
         #expect(AudioCodec(fourCC: "").displayName == "Unknown audio codec")
     }
 
+    /// Regression: AVFoundation reports plain AAC as `aac`, not `mp4a`, so mapping
+    /// only the MPEG-4 object type rejected ordinary AAC audio files.
+    @Test func recognisesEveryAACIdentifier() {
+        #expect(AudioCodec(fourCC: "aac") == .aac)
+        #expect(AudioCodec(fourCC: "aacp") == .aac)
+        #expect(AudioCodec(fourCC: "aach") == .aac)
+        #expect(AudioCodec(fourCC: "aac").displayName == "AAC")
+    }
+
     @Test func namesKnownCodecsForDisplay() {
         #expect(VideoCodec.h264.displayName == "H.264")
         #expect(VideoCodec.hevc.displayName == "HEVC")

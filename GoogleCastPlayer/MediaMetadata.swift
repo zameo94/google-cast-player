@@ -67,10 +67,13 @@ enum AudioCodec: Equatable, Sendable {
 
     /// Maps a FourCC code such as `mp4a` to a known codec.
     ///
-    /// An empty code means the container did not report one.
+    /// The AAC family appears under more than one identifier: `aac` and `aacp` are
+    /// reported for plain and parameterized AAC, while `mp4a` is the MPEG-4 audio
+    /// object type used by some containers. An empty code means the container did
+    /// not report one.
     init(fourCC: String) {
         switch fourCC {
-        case "mp4a":
+        case "aac", "aacp", "aach", "mp4a":
             self = .aac
         default:
             self = .other(name: fourCC.uppercased())

@@ -27,6 +27,20 @@ struct MediaMetadataExtractorTests {
         #expect(abs(duration.inSeconds - 1.0) < 0.1)
     }
 
+    @Test func readsAACAudio() async throws {
+        let url = try #require(
+            Bundle(for: TestBundleAnchor.self).url(forResource: "sample-aac", withExtension: "m4a"),
+            "The sample-aac.m4a fixture is missing from the test bundle"
+        )
+
+        let metadata = try await extractor.extractMetadata(from: url)
+
+        let track = try #require(metadata.audioTracks.first)
+        #expect(track.codec == .aac)
+        #expect(metadata.audioTracks.count == 1)
+        #expect(metadata.videoTracks.isEmpty)
+    }
+
     @Test func reportsUnreadableFile() async {
         let url = TestFixture.missingFileURL(named: "missing.mp4")
 

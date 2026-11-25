@@ -8,7 +8,7 @@ Current feature branches: feature/media-metadata-compatibility (Phase 2), create
 Current working branch: feature/media-metadata-compatibility.
 Last verified commit: main is 5877d89; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
-Last verified test run: 48 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
+Last verified test run: 50 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
 Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
 Last remote synchronization: main matches origin/main at 5877d89. The Phase 2 branch has not been pushed.
 
@@ -54,7 +54,7 @@ Phase 2 — media access, metadata and compatibility:
 * `MediaCompatibilityEvaluator` is a pure function over metadata and format: it accepts MP4/M4V with H.264 and AAC, reports MOV and undeterminable properties as uncertain, and rejects other containers or codecs with an explanation.
 * `SecurityScopedFileAccess` acquires and releases the security scope of the selected file; `MediaImportModel` holds access while a file is selected and releases it on replacement or removal.
 * The main window shows duration, resolution, codecs, a format verdict with its reasons, a loading state and a metadata error state.
-* 30 additional unit tests (48 in total) covering codec mapping, the compatibility rules, extraction from a real H.264 fixture, access lifetime and metadata states, including a selection replaced while metadata is loading.
+* 32 additional unit tests (50 in total) covering codec mapping, the compatibility rules, extraction from real H.264 and AAC fixtures, access lifetime and metadata states, including a selection replaced while metadata is loading.
 * Verified Debug build, clean compiler warnings and passing test run (see section 6).
 
 4. In Progress
@@ -83,7 +83,7 @@ Test:
 Verified on 2026-11-25 with Xcode 27.2:
 
 * Clean Debug build succeeded with no compiler warnings.
-* Test run succeeded: 48 tests in 6 suites.
+* Test run succeeded: 50 tests in 6 suites.
 * The built application launches, keeps running and quits cleanly.
 * An offscreen render of the screen confirmed the layout of the empty, loading, compatible, unsupported and metadata-error states. Visual appearance and interactive drag-and-drop were not inspected automatically: macOS denied screen recording and accessibility access to the shell, so they remain manual checks.
 
@@ -117,6 +117,7 @@ Continuous integration: .github/workflows/ci.yml builds and tests the project on
 | 2026-11-25 | main | Pull request #2 merged dev into main | Build and tests verified on dev before the merge | 5877d89 |
 | 2026-11-25 | feature/media-metadata-compatibility | Metadata extraction, codec mapping and compatibility rules with 30 new tests | 48 tests passed; gga reviewed the staged Swift files | ff89ebb |
 | 2026-11-25 | feature/media-metadata-compatibility | Access lifetime, metadata states and presentation | 48 tests passed; gga rejected the first "Compatible" label as an unverified guarantee and passed the corrected one | b194f7f |
+| 2026-11-25 | feature/media-metadata-compatibility | Fixed AAC detection: AVFoundation reports plain AAC as `aac`, not only `mp4a` | Regression tests failed on the old mapping and pass on the new one; real files reassessed | this commit |
 
 8. Blockers and Risks
 No active blocker.
