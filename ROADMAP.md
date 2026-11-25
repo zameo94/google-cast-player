@@ -138,7 +138,7 @@ Acceptance criteria:
 * Network and permission errors are understandable.
 * Discovery logic is separated from the UI and covered by appropriate tests.
 Phase 4 — Local HTTP Media Server
-Status: Implemented, verified and integrated into dev; promotion to main pending.
+Status: Complete.
 Objectives:
 * Implement the integrated local HTTP server.
 * Bind the server to an appropriate local network interface.
@@ -162,7 +162,7 @@ Acceptance criteria:
 * The server can be stopped without leaving resources running.
 * No public Internet exposure or cloud media transfer is required.
 Phase 5 — Cast Communication
-Status: Not assessed.
+Status: Implemented and integrated into dev; the protocol, message handling and session state are covered by tests, real-device verification is still pending.
 Objectives:
 * Evaluate the available Google Cast SDK and protocol implementation options.
 * Verify macOS compatibility, licensing, maintenance status, and technical constraints.
@@ -294,7 +294,7 @@ Do not mark a phase complete merely because its feature branch has been implemen
 A phase is complete only after its acceptance criteria have been verified and the corresponding work has reached main.
 7. Roadmap Maintenance
 This document describes the intended product direction, development phases, and acceptance criteria.
-This document is the single authority for step control: it owns the phase numbering, the order of work, the acceptance criteria, and the Status line of every phase. AGENTS.md describes the same work in technical order without numbering it, and DEVELOPMENT.md records the operational state without restating scope or acceptance criteria. No other document introduces phase numbers or changes a phase status.
+This document is the single authority for step control: it owns the phase numbering, the order of work, the acceptance criteria, and the Status line of every phase. AGENTS.md describes the same work in technical order without numbering it, and DEVELOPMENT.md records the operational state without restating scope or acceptance criteria. No other document defines the phase numbering or changes a phase status; other documents may refer to these numbers.
 The repository uses three complementary documents:
 * AGENTS.md: permanent development instructions, working rules, quality requirements, and autonomy boundaries; it does not number or track phases.
 * ROADMAP.md: product vision, development phases, scope, dependencies, acceptance criteria, and the status of every phase.
