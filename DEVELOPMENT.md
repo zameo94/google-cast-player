@@ -8,7 +8,7 @@ Current feature branches: feature/end-to-end-streaming (Phase 6), created from m
 Current working branch: feature/end-to-end-streaming.
 Last verified commit: main is 51cdca4; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
-Last verified test run: 136 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
+Last verified test run: 137 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
 Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
 Last remote synchronization: main matches origin/main at 51cdca4. The Phase 6 branch has not been pushed.
 
@@ -85,7 +85,7 @@ Phase 5 — Cast communication:
 * `CastClient` runs the protocol the app needs: the connection namespace, heartbeat replies and its own pings, launching the Default Media Receiver, and sending a load command with the media URL, content type and stream type.
 * `CastDevice` now carries the Bonjour endpoint discovery reported, so a session can be opened without resolving the service again.
 * `CastConnectionModel` exposes real session states: idle, connecting, connected and failed with the reason the device or transport reported.
-* The window shows the state on the device card itself: a selected card is blue and offers Connect, a spinner appears on it while connecting, the card turns green once connected, and the session row offers Disconnect; a failure shows the reason with retry and dismiss.
+* The window shows the state on the device card itself: a selected card is blue and offers Connect, a spinner appears on it while connecting, and a connected card turns green and offers Disconnect; a failure shows the reason with retry and dismiss, and connecting again to the already connected device does nothing.
 * 21 additional unit tests (125 in total) covering message encoding and framing, the client handshake against a scripted transport, heartbeat behaviour, load payloads, timeouts, transport loss and the connection state machine.
 
 Phase 6 — end-to-end local video streaming:
@@ -97,7 +97,7 @@ Phase 6 — end-to-end local video streaming:
 * Ending a session sends a media STOP, a receiver STOP and a connection CLOSE before dropping the socket, then stops the server; closing the socket alone left the receiver playing and kept its cast screen alive. The stop commands carry a request id, which the receiver requires and silently ignores otherwise, and the receiver STOP falls back to stopping the current app when no session id was reported.
 * Leaving the connected state stops the server, so the file stops being reachable exactly when the cast ends.
 * Server failures and load failures now carry user-facing descriptions.
-* 11 additional unit tests (136 in total), including an integration test that fetches the exact URL handed to the device, tests of the stop sequence, of stopping playback alone and of the cast orchestration.
+* 12 additional unit tests (137 in total), including an integration test that fetches the exact URL handed to the device, tests of the stop sequence, of stopping playback alone, of the cast orchestration and of a repeated connect.
 
 4. In Progress
 * Playback was reported working on a real device, but without a recorded run of the checks in section 6, so the Phase 6 acceptance criterion is not yet documented as verified.
@@ -126,7 +126,7 @@ Test:
 Verified on 2026-11-25 with Xcode 27.2:
 
 * Clean Debug build succeeded with no compiler warnings.
-* Test run succeeded: 136 tests in 16 suites.
+* Test run succeeded: 137 tests in 16 suites.
 * The built application launches, keeps running and quits cleanly.
 * An offscreen render confirmed the layout of the video states. The new screen hosts a scroll view, which the offscreen renderer cannot draw, so the device section is a manual check.
 * Discovery was verified end to end against a Bonjour service registered on this machine: the browser reported the device once with its TXT record, and reported it removed when the service stopped. The test host itself cannot browse, because macOS gives it no local network access without a user decision.
@@ -188,6 +188,7 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-25 | feature/end-to-end-streaming | Stop commands now carry request ids, and the stop runs before the server is stopped | 134 tests passed; the missing request id explains the stop being ignored on hardware | ab1cac5 |
 | 2026-11-25 | feature/end-to-end-streaming | Stop the media only, leaving the session open, and keep Disconnect for ending it | 136 tests passed | 50ebf78 |
 | 2026-11-25 | feature/end-to-end-streaming | Connect from the device card, with blue for selection and green for connection | 136 tests passed | 2e272b5 |
+| 2026-11-25 | feature/end-to-end-streaming | Disconnect replaces Connect on a connected card, and a repeated connect keeps the session | 137 tests passed | 9f2c275 |
 | 2026-11-25 | dev | Integrated the Phase 3 branch | Build and tests re-run on dev after the merge | see section 6 |
 
 8. Blockers and Risks
