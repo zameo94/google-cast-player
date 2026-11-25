@@ -15,6 +15,7 @@ final class FakeCastSession: CastSessionControlling {
     private(set) var pauseCount = 0
     private(set) var seekPositions: [TimeInterval] = []
     var onMediaStatusChange: ((CastClient.MediaStatus?) -> Void)?
+    var onReceiverStopped: (() -> Void)?
     var loadError: (any Error)?
 
     init(result: Result<String, any Error> = .success("web-5")) {
@@ -195,6 +196,21 @@ struct CastConnectionModelTests {
             CastClient.MediaStatus(mediaSessionID: 7, playerState: .idle, position: nil, duration: 90, idleReason: "CANCELLED")
         )
         #expect(connection.playbackSnapshot?.status == .finished)
+    }
+
+    @Test func reportsWhenTheDeviceStopsItsReceiver() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+
+        session.onReceiverStopped?()
+
+        guard case let .failed(message) = connection.state else {
+            Issue.record("Expected a failure, got \(connection.state)")
+            return
+        }
+        #expect(message.contains("stopped the receiver"))
+        #expect(connection.receiverTransportID == nil)
     }
 
     @Test func clearsTheMediaStatusWhenDisconnecting() async {

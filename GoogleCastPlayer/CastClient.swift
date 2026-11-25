@@ -106,6 +106,8 @@ final class CastClient {
     private(set) var mediaStatus: MediaStatus?
     /// Called on every media status the receiver reports.
     var onMediaStatus: ((MediaStatus?) -> Void)?
+    /// Called when the device reports that no receiver application is running.
+    var onReceiverStopped: (() -> Void)?
     private var receiverBuffer = Data()
     private var nextRequestID = 1
     private var isConnected = false
@@ -349,18 +351,21 @@ final class CastClient {
     }
 
     private func handleReceiver(_ message: CastMessage) {
-        guard let pendingLaunch else {
+        // A receiver status can also report that the app stopped.
+        if Self.hasStoppedReceiver(in: message.payload) {
+            let wasRunning = receiverTransportID != nil
+            receiverTransportID = nil
+            receiverSessionID = nil
+            mediaSessionID = nil
+            mediaStatus = nil
+            onMediaStatus?(nil)
+            if wasRunning {
+                onReceiverStopped?()
+            }
             return
         }
-        guard let application = Self.application(in: message.payload, forAppID: pendingLaunch.appID) else {
-            // A receiver status can also report that the app stopped.
-            if Self.hasStoppedReceiver(in: message.payload) {
-                receiverTransportID = nil
-                receiverSessionID = nil
-                mediaSessionID = nil
-                mediaStatus = nil
-                onMediaStatus?(nil)
-            }
+        guard let pendingLaunch,
+              let application = Self.application(in: message.payload, forAppID: pendingLaunch.appID) else {
             return
         }
         receiverTransportID = application.transportID

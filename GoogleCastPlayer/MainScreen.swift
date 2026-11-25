@@ -191,6 +191,7 @@ struct MainScreen: View {
             HStack(spacing: 8) {
                 ProgressView()
                     .controlSize(.small)
+                    .accessibilityLabel("Reading media information")
                 Text("Reading media information\u{2026}")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -251,11 +252,21 @@ struct MainScreen: View {
                     HStack(spacing: 6) {
                         ProgressView()
                             .controlSize(.small)
+                            .accessibilityLabel("Searching for devices")
                         Text("Searching\u{2026}")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                Button {
+                    searchID = UUID()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .help("Search for devices again")
+                .accessibilityLabel("Search for devices again")
             }
 
             switch devices.state {
@@ -463,6 +474,7 @@ struct MainScreen: View {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
+                        .accessibilityLabel("Starting the cast")
                     Text("Starting\u{2026}")
                         .font(.callout)
                         .foregroundStyle(.secondary)
