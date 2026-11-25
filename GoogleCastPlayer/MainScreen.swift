@@ -1,36 +1,46 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Main window content: import one local video file and present what is known about it.
+/// Main window content: choose one video file and one Cast device.
 ///
 /// The view renders model state and forwards user actions. It contains no file
-/// validation, no metadata extraction and no Cast or media-serving behaviour.
-struct MediaImportScreen: View {
-    let model: MediaImportModel
+/// validation, no metadata extraction and no networking.
+struct MainScreen: View {
+    let media: MediaImportModel
+    let devices: DeviceDiscoveryModel
 
     @State private var isFilePickerPresented = false
     @State private var isDropTargeted = false
+    @State private var searchID = UUID()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            header
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                header
 
-            if let selectedFile = model.selectedFile {
-                selectedFileCard(selectedFile)
-            } else {
-                dropArea
+                if let selectedFile = media.selectedFile {
+                    selectedFileCard(selectedFile)
+                } else {
+                    dropArea
+                }
+
+                if let errorMessage = media.errorMessage {
+                    errorBanner(errorMessage)
+                }
+
+                deviceSection
+
+                Spacer(minLength: 0)
             }
-
-            if let errorMessage = model.errorMessage {
-                errorBanner(errorMessage)
-            }
-
-            Spacer(minLength: 0)
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(24)
-        .frame(minWidth: 520, minHeight: 420, alignment: .topLeading)
-        .task(id: model.selectedFile?.id) {
-            await model.loadMetadata()
+        .frame(minWidth: 560, minHeight: 560)
+        .task(id: media.selectedFile?.id) {
+            await media.loadMetadata()
+        }
+        .task(id: searchID) {
+            await devices.run()
         }
         .fileImporter(
             isPresented: $isFilePickerPresented,
@@ -40,17 +50,17 @@ struct MediaImportScreen: View {
             switch result {
             case let .success(urls):
                 Task { @MainActor in
-                    model.importFiles(at: urls)
+                    media.importFiles(at: urls)
                 }
             case let .failure(error):
                 Task { @MainActor in
-                    model.reportFilePickerFailure(error)
+                    media.reportFilePickerFailure(error)
                 }
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
             Task { @MainActor in
-                model.importFiles(at: urls)
+                media.importFiles(at: urls)
             }
             return true
         } isTargeted: { isTargeted in
@@ -59,6 +69,8 @@ struct MediaImportScreen: View {
             }
         }
     }
+
+    // MARK: - Header
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -69,6 +81,8 @@ struct MediaImportScreen: View {
                 .foregroundStyle(.secondary)
         }
     }
+
+    // MARK: - Video
 
     private var dropArea: some View {
         VStack(spacing: 12) {
@@ -92,7 +106,7 @@ struct MediaImportScreen: View {
             .controlSize(.large)
             .keyboardShortcut("o")
         }
-        .frame(maxWidth: .infinity, minHeight: 240)
+        .frame(maxWidth: .infinity, minHeight: 200)
         .padding(24)
         .background(
             RoundedRectangle(cornerRadius: 12)
@@ -140,7 +154,7 @@ struct MediaImportScreen: View {
                 .keyboardShortcut("o")
 
                 Button("Remove", role: .destructive) {
-                    model.removeSelection()
+                    media.removeSelection()
                 }
 
                 Spacer(minLength: 0)
@@ -162,7 +176,7 @@ struct MediaImportScreen: View {
 
     @ViewBuilder
     private var metadataSection: some View {
-        switch model.metadataState {
+        switch media.metadataState {
         case .loading:
             HStack(spacing: 8) {
                 ProgressView()
@@ -213,6 +227,110 @@ struct MediaImportScreen: View {
         return "\(selectedFile.format.displayName) \u{00B7} \(size)"
     }
 
+    // MARK: - Devices
+
+    private var deviceSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Device")
+                    .font(.headline)
+
+                Spacer(minLength: 0)
+
+                if devices.state == .searching {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Searching\u{2026}")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            switch devices.state {
+            case .searching, .ready:
+                if devices.devices.isEmpty {
+                    emptyDeviceList
+                } else {
+                    VStack(spacing: 2) {
+                        ForEach(devices.devices) { device in
+                            deviceRow(device)
+                        }
+                    }
+                }
+            case let .failed(message):
+                failedDeviceList(message)
+            }
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.quinary)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 1)
+        )
+    }
+
+    private var emptyDeviceList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("No Cast device found yet. Make sure the device is on the same network.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Search Again") {
+                searchID = UUID()
+            }
+        }
+    }
+
+    private func failedDeviceList(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Search Again") {
+                searchID = UUID()
+            }
+        }
+    }
+
+    private func deviceRow(_ device: CastDevice) -> some View {
+        let isSelected = devices.selectedDeviceID == device.id
+        return Button {
+            devices.selectDevice(id: device.id)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(device.name)
+                        .font(.body)
+                    if let modelName = device.modelName {
+                        Text(modelName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    // MARK: - Banner
+
     private func errorBanner(_ message: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -226,7 +344,7 @@ struct MediaImportScreen: View {
             Spacer(minLength: 0)
 
             Button("Dismiss") {
-                model.dismissError()
+                media.dismissError()
             }
             .buttonStyle(.link)
         }
