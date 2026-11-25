@@ -72,3 +72,10 @@ extension MediaMetadata {
         audioTracks: [AudioTrack(codec: .aac)]
     )
 }
+
+/// Browser double that emits nothing, for tests that drive the model directly.
+struct SilentCastDeviceBrowser: CastDeviceBrowsing {
+    func events() -> AsyncStream<CastDiscoveryEvent> {
+        AsyncStream { _ in }
+    }
+}

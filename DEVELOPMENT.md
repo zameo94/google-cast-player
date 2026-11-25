@@ -1,16 +1,16 @@
 Google Cast Player — Development
 
 1. Current State
-Overall status: Phase 0, Phase 1 and Phase 2 verified and integrated into dev; promotion to main is pending.
-Current development phase: Phase 2 — Media Access, Metadata and Compatibility (acceptance criteria verified; integrated into dev, not yet promoted to main).
-Current milestone: Promotion of dev to main and Phase 3 preparation.
-Current feature branches: feature/media-metadata-compatibility (Phase 2), created from main at 5877d89 and merged into dev.
+Overall status: Phase 0 to Phase 2 verified and on main; Phase 3 integrated into dev with real-device discovery still pending.
+Current development phase: Phase 3 — Cast Device Discovery (integrated into dev; discovery verified against a registered Bonjour service, not yet against a physical Cast device).
+Current milestone: Promotion of dev to main and Phase 4 preparation.
+Current feature branches: feature/cast-device-discovery (Phase 3), created from main at 5255e19 and merged into dev.
 Current working branch: dev, used only to integrate completed feature branches; feature work happens on feature/<name> branches.
-Last verified commit: main is 5877d89; feature commits are listed in section 7.
+Last verified commit: main is 5255e19; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
-Last verified test run: 50 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
+Last verified test run: 73 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
 Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
-Last remote synchronization: main matches origin/main at 5877d89. dev is ahead of origin/dev with the integrated Phase 2 work; nothing has been pushed.
+Last remote synchronization: main matches origin/main at 5255e19. dev is ahead of origin/dev with the integrated Phase 3 work; nothing has been pushed.
 
 2. Verified Environment
 Verified on the development machine before this status was written:
@@ -57,9 +57,19 @@ Phase 2 — media access, metadata and compatibility:
 * 32 additional unit tests (50 in total) covering codec mapping, the compatibility rules, extraction from real H.264 and AAC fixtures, access lifetime and metadata states, including a selection replaced while metadata is loading.
 * Verified Debug build, clean compiler warnings and passing test run (see section 6).
 
+Phase 3 — Cast device discovery:
+
+* `CastDevice` describes a discovered device and is identified by its Bonjour service name, which is the only value the network always reports.
+* `DiscoveredDeviceSet` turns browse snapshots into appeared, changed and vanished events, collapsing the duplicate reports macOS delivers per interface.
+* `BonjourCastDeviceBrowser` browses `_googlecast._tcp` through Network.framework, never connects, and reports a blocked local network permission with an actionable message instead of an empty list.
+* `DeviceDiscoveryModel` owns the discovered devices, the visible search state and the user's selection; a device that disappears clears its own selection.
+* `MainScreen` presents the search state, the device list with selection, an empty result with "Search Again", and a failure with its message.
+* The app declares `NSBonjourServices` and `NSLocalNetworkUsageDescription`, so macOS can ask for local network access.
+* 23 additional unit tests (73 in total) covering device parsing, duplicate reports, appear/update/disappear events, selection lifetime and failure states.
+
 4. In Progress
-* Promotion of dev to main: Phase 2 is integrated and requires explicit user approval to reach main.
-* Phase 3 (Cast device discovery) has not started and waits for the Phase 2 integration.
+* Promotion of dev to main: Phase 3 is integrated and requires explicit user approval to reach main.
+* Phase 4 (local HTTP media server) has not started and waits for the promotion of dev to main.
 
 5. Quality Gate and Tooling Decisions
 * The review gate is enforced by a Git pre-commit hook installed with scripts/install-git-hooks.sh; the hook refuses to run when gga or the local .gga configuration is missing instead of skipping the review.
@@ -83,9 +93,10 @@ Test:
 Verified on 2026-11-25 with Xcode 27.2:
 
 * Clean Debug build succeeded with no compiler warnings.
-* Test run succeeded: 50 tests in 6 suites.
+* Test run succeeded: 73 tests in 9 suites.
 * The built application launches, keeps running and quits cleanly.
-* An offscreen render of the screen confirmed the layout of the empty, loading, compatible, unsupported and metadata-error states. Visual appearance and interactive drag-and-drop were not inspected automatically: macOS denied screen recording and accessibility access to the shell, so they remain manual checks.
+* An offscreen render confirmed the layout of the video states. The new screen hosts a scroll view, which the offscreen renderer cannot draw, so the device section is a manual check.
+* Discovery was verified end to end against a Bonjour service registered on this machine: the browser reported the device once with its TXT record, and reported it removed when the service stopped. The test host itself cannot browse, because macOS gives it no local network access without a user decision.
 
 Manual checks (require a graphical session and cannot be automated on this machine):
 
@@ -95,6 +106,11 @@ Manual checks (require a graphical session and cannot be automated on this machi
 4. Drop a non-video file, for example a `.txt`; the error banner must explain the problem and the previous selection must stay.
 5. Drop a file the container cannot open while it is being described; the card must show the metadata error instead of invented values.
 6. Click "Remove" to return to the empty state.
+7. Allow local network access when macOS asks; the device section must list the Cast devices on the network.
+8. Select a device; the selection must be visible and must survive other devices appearing.
+9. Turn the selected device off or block its network; the device must disappear and its selection must be cleared.
+
+Status of these checks: the user exercised the import flow, the metadata display and the verdict in the running app on 2026-11-25 (items 1, 2, 3, 4 and 6). Item 5 and the device checks 7 to 9 are pending; the device checks need a physical Cast device powered on and reachable.
 
 Note: the verdict describes the container and codecs only. Actual playback on a receiver is not verified and is not promised by the label.
 
@@ -119,27 +135,34 @@ Continuous integration: .github/workflows/ci.yml builds and tests the project on
 | 2026-11-25 | feature/media-metadata-compatibility | Access lifetime, metadata states and presentation | 48 tests passed; gga rejected the first "Compatible" label as an unverified guarantee and passed the corrected one | b194f7f |
 | 2026-11-25 | feature/media-metadata-compatibility | Fixed AAC detection: AVFoundation reports plain AAC as `aac`, not only `mp4a` | Regression tests failed on the old mapping and pass on the new one; real files reassessed | b25a0eb |
 | 2026-11-25 | dev | Integrated the Phase 2 branch | Build and tests re-run on dev after the merge | see section 6 |
+| 2026-11-25 | main | Pull request #3 merged dev into main | Build and tests verified on dev before the merge | 5255e19 |
+| 2026-11-25 | feature/cast-device-discovery | Bonjour discovery, device identity and duplicate collapse | 73 tests passed; discovery verified against a registered Bonjour service | 7624a69 |
+| 2026-11-25 | feature/cast-device-discovery | Device state, selection and the device section of the window | 73 tests passed; gga reviewed the staged Swift files | 05baa91 |
+| 2026-11-25 | feature/cast-device-discovery | Device cards, card-wide selection and the honest "not connected yet" caption | 73 tests passed | 62958e5 |
+| 2026-11-25 | dev | Integrated the Phase 3 branch | Build and tests re-run on dev after the merge | see section 6 |
 
 8. Blockers and Risks
 No active blocker.
 
 Risks and pending verification:
 
-* Phase 0 and Phase 1 reached main through pull request #2. Phase 2 is integrated into dev and needs promotion to main before ROADMAP.md allows it to be marked complete.
+* Phase 0 to Phase 2 reached main through pull requests #2 and #3. Phase 3 is integrated into dev and needs promotion to main before ROADMAP.md allows it to be marked complete.
+* Discovery has not seen a physical Cast device yet: it was verified against a Bonjour service registered on this machine, which exercises the same browser path. The acceptance criterion about real devices needs a device powered on and reachable.
+* The test host of the automated suite cannot browse the network, because macOS grants local network access to an app only after the user allows it. Discovery therefore has no automated network test.
 * Continuous integration has not run on GitHub yet; it can only be verified after the first push.
 * Chromecast discovery, connectivity and playback have never been exercised; the corresponding phases are not started.
 * The compatibility verdict describes the container and codecs only. Real playback on a receiver is unverified, so the interface never labels a file as playable, only as matching or not matching the format profile.
-* Visual appearance and interactive drag-and-drop in the running application are manual checks: the shell has neither screen recording nor accessibility permission, and no UI test target exists yet.
+* Interactive and visual checks are manual: the shell has neither screen recording nor accessibility permission, and there is no UI test target. Section 6 records which checks the user exercised and which are still pending.
 * Repository branch protection and required status checks cannot be configured from this environment and must be verified on GitHub by the user.
 * The review gate depends on the locally configured AI provider. A review that misjudges valid code blocks the commit until it is rerun; build and test results remain the authoritative verification.
 
 9. Next Objective
-Promote Phase 2 and prepare Phase 3:
+Promote Phase 3 and prepare Phase 4:
 1. Push dev and verify that the GitHub Actions workflow runs successfully on it (pushing requires explicit user approval).
-2. Authorize the promotion of dev to main so Phase 2 can be marked complete.
-3. Only then start Phase 3 — Cast device discovery — following ROADMAP.md.
+2. Authorize the promotion of dev to main so Phase 3 can be marked complete.
+3. Only then start Phase 4 — local HTTP media server — following ROADMAP.md.
 
-Do not start device discovery, media serving, Cast communication or playback before their planned phases.
+Do not start media serving, Cast communication or playback before their planned phases.
 
 10. Maintenance Rules
 * Update this file after each meaningful development milestone.
