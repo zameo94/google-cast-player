@@ -93,10 +93,10 @@ Phase 6 — end-to-end local video streaming:
 * `PlaybackModel` owns one cast: it starts the local server for the selected file, builds the media request from its MIME type, hands the URL to the connected device, and stops serving when the cast ends or fails.
 * `MediaServing` and `CastMediaLoading` keep the orchestration testable without a socket or a device; `LocalMediaServer` and `CastConnectionModel` provide the real implementations.
 * The window offers "Play on <device>" once a device is connected and a video is selected, shows a spinner while starting, prints the served URL once the device accepted it, and offers Stop.
-* Ending a session sends a media STOP, a receiver STOP and a connection CLOSE before dropping the socket, then stops the server; closing the socket alone left the receiver playing and kept its cast screen alive.
+* Ending a session sends a media STOP, a receiver STOP and a connection CLOSE before dropping the socket, then stops the server; closing the socket alone left the receiver playing and kept its cast screen alive. The stop commands carry a request id, which the receiver requires and silently ignores otherwise, and the receiver STOP falls back to stopping the current app when no session id was reported.
 * Leaving the connected state stops the server, so the file stops being reachable exactly when the cast ends.
 * Server failures and load failures now carry user-facing descriptions.
-* 8 additional unit tests (133 in total), including an integration test that fetches the exact URL handed to the device and compares the bytes.
+* 9 additional unit tests (134 in total), including an integration test that fetches the exact URL handed to the device, a test of the stop sequence, and the cast orchestration.
 
 4. In Progress
 * Playback was reported working on a real device, but without a recorded run of the checks in section 6, so the Phase 6 acceptance criterion is not yet documented as verified.
@@ -125,7 +125,7 @@ Test:
 Verified on 2026-11-25 with Xcode 27.2:
 
 * Clean Debug build succeeded with no compiler warnings.
-* Test run succeeded: 133 tests in 16 suites.
+* Test run succeeded: 134 tests in 16 suites.
 * The built application launches, keeps running and quits cleanly.
 * An offscreen render confirmed the layout of the video states. The new screen hosts a scroll view, which the offscreen renderer cannot draw, so the device section is a manual check.
 * Discovery was verified end to end against a Bonjour service registered on this machine: the browser reported the device once with its TXT record, and reported it removed when the service stopped. The test host itself cannot browse, because macOS gives it no local network access without a user decision.
@@ -184,6 +184,7 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-25 | main | Pull request #6 merged dev into main | Build and tests verified on dev before the merge | 51cdca4 |
 | 2026-11-25 | feature/end-to-end-streaming | Cast orchestration, cast controls and the served URL in the window | 133 tests passed; gga rejected an unguarded URL literal in the tests and it was fixed | bafdfa4 |
 | 2026-11-25 | feature/end-to-end-streaming | Stop the media and the receiver before closing the session | 134 tests passed; found because disconnecting left the receiver playing on hardware | d35e6d3 |
+| 2026-11-25 | feature/end-to-end-streaming | Stop commands now carry request ids, and the stop runs before the server is stopped | 134 tests passed; the missing request id explains the stop being ignored on hardware | ab1cac5 |
 | 2026-11-25 | dev | Integrated the Phase 3 branch | Build and tests re-run on dev after the merge | see section 6 |
 
 8. Blockers and Risks
