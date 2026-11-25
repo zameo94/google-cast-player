@@ -294,10 +294,12 @@ Do not mark a phase complete merely because its feature branch has been implemen
 A phase is complete only after its acceptance criteria have been verified and the corresponding work has reached main.
 7. Roadmap Maintenance
 This document describes the intended product direction, development phases, and acceptance criteria.
+This document is the single authority for step control: it owns the phase numbering, the order of work, the acceptance criteria, and the Status line of every phase. AGENTS.md describes the same work in technical order without numbering it, and DEVELOPMENT.md records the operational state without restating scope or acceptance criteria. No other document introduces phase numbers or changes a phase status.
 The repository uses three complementary documents:
-* AGENTS.md: permanent development instructions, working rules, quality requirements, and autonomy boundaries.
-* ROADMAP.md: product vision, development phases, scope, dependencies, and acceptance criteria.
+* AGENTS.md: permanent development instructions, working rules, quality requirements, and autonomy boundaries; it does not number or track phases.
+* ROADMAP.md: product vision, development phases, scope, dependencies, acceptance criteria, and the status of every phase.
 * DEVELOPMENT.md: current implementation status, completed and verified work, active tasks, blockers, and the next recommended action.
+Every phase carries a Status line. Update that line when the phase state changes, following the rules below, and keep it consistent with the verified evidence recorded in DEVELOPMENT.md.
 Do not create or maintain PROJECT_STATUS.md. Use DEVELOPMENT.md for operational project status.
 When implementation details change:
 * Update this roadmap only when the product scope, phase structure, or technical direction genuinely changes.
