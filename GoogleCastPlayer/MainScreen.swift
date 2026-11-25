@@ -385,11 +385,21 @@ struct MainScreen: View {
                 Text("Connecting\u{2026}")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button("Cancel") {
+                    connection.disconnect()
+                }
             }
         case .connected:
-            Label("Connected", systemImage: "checkmark.circle.fill")
-                .font(.callout.weight(.medium))
-                .foregroundStyle(Color.green)
+            HStack(spacing: 8) {
+                Label("Connected", systemImage: "checkmark.circle.fill")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(Color.green)
+                Spacer(minLength: 0)
+                Button("Disconnect") {
+                    connection.disconnect()
+                }
+            }
         case let .failed(message):
             VStack(alignment: .leading, spacing: 6) {
                 Label("Not connected", systemImage: "xmark.circle.fill")
@@ -399,8 +409,13 @@ struct MainScreen: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("Try Again") {
-                    Task { await connection.connect(to: device) }
+                HStack(spacing: 12) {
+                    Button("Try Again") {
+                        Task { await connection.connect(to: device) }
+                    }
+                    Button("Dismiss") {
+                        connection.disconnect()
+                    }
                 }
             }
         }
