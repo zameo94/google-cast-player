@@ -67,14 +67,16 @@ final class TLSCastTransport: CastTransporting, @unchecked Sendable {
             connection.start(queue: queue)
         }
 
-        queue.async {
+        queue.sync {
             self.connection = connection
             self.startReceiving()
         }
     }
 
     func send(_ data: Data) async throws {
-        guard let connection else {
+        // Read through the queue so a send issued right after `connect()` sees the
+        // stored connection, and so the mutable state stays confined to the queue.
+        guard let connection = queue.sync(execute: { self.connection }) else {
             throw TransportError.notConnected
         }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
