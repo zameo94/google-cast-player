@@ -46,14 +46,27 @@ protocol CastMediaLoading: AnyObject {
     var isConnected: Bool { get }
     /// Asks the running receiver to load `media`.
     func load(_ media: CastClient.Media) async throws
+    /// Reopens the session with the device the cast belongs to, after the transport died.
+    func reconnect() async
+    /// Position, in seconds, the cast reached, so a resumed cast continues where it stopped.
+    var resumePosition: TimeInterval? { get }
+}
+
+extension CastMediaLoading {
+    func reconnect() async {}
+    var resumePosition: TimeInterval? { nil }
 }
 
 /// Drives one casting session: serve the file locally, then ask the device to play it.
 ///
 /// The model owns the server lifetime, so the file is reachable exactly while a cast is
-/// active, and it stops serving when the cast ends or fails. The device confirms that it
-/// accepted the load; what it reports about playback state is handled by the playback
-/// phase.
+/// active, and it stops serving when the cast ends or fails. It also owns the wake
+/// assertion: while a cast runs the Mac is kept out of App Nap and out of idle sleep, so
+/// locking the screen or letting the display turn off does not end the session.
+///
+/// A cast that loses its connection becomes `interrupted` instead of disappearing: the
+/// file and the last position are kept, and the session is resumed automatically after
+/// the Mac wakes or when the user asks for it.
 @MainActor
 @Observable
 final class PlaybackModel {
@@ -64,11 +77,15 @@ final class PlaybackModel {
         case starting
         /// The device accepted the media URL.
         case casting(url: URL)
+        /// The client lost the device; the cast can be resumed where it stopped.
+        case interrupted(reason: String)
         /// The cast could not start; the message is ready for display.
         case failed(String)
     }
 
     private(set) var state: State = .idle
+    /// File of the current cast, kept so an interrupted cast can be resumed.
+    private(set) var file: MediaFile?
 
     /// URL the receiver was asked to load, while a cast is active.
     var castingURL: URL? {
@@ -79,13 +96,48 @@ final class PlaybackModel {
     }
 
     private let server: any MediaServing
+    private let power: any CastPowerAsserting
+    private let sleepWatcher: any SystemSleepWatching
+    private let sleeper: any Sleeping
+    /// Session of the current cast, used to resume it after the Mac wakes.
+    private weak var connection: (any CastMediaLoading)?
+    private var isWatchingForWake = false
 
-    init(server: any MediaServing = LocalMediaServer()) {
+    init(
+        server: any MediaServing = LocalMediaServer(),
+        power: any CastPowerAsserting = CastPowerAssertion(),
+        sleepWatcher: any SystemSleepWatching = SystemSleepWatcher(),
+        sleeper: any Sleeping = TaskSleeper()
+    ) {
         self.server = server
+        self.power = power
+        self.sleepWatcher = sleepWatcher
+        self.sleeper = sleeper
     }
 
-    /// Serves `file` locally and asks `device` to play it.
-    func play(file: MediaFile, connection: any CastMediaLoading) async {
+    /// Starts reporting wakes; the application calls it once the interface exists.
+    func startWatchingForWake() {
+        guard !isWatchingForWake else {
+            return
+        }
+        isWatchingForWake = true
+        sleepWatcher.onWake = { [weak self] in
+            guard let self else {
+                return
+            }
+            Task { await self.handleWake() }
+        }
+        sleepWatcher.start()
+    }
+
+    /// Serves `file` locally and asks the device to play it.
+    ///
+    /// - Parameter startAt: Position, in seconds, the receiver starts from.
+    func play(
+        file: MediaFile,
+        connection: any CastMediaLoading,
+        startAt position: TimeInterval = 0
+    ) async {
         guard connection.isConnected else {
             state = .failed("Connect to a device before casting.")
             return
@@ -93,26 +145,66 @@ final class PlaybackModel {
 
         stop()
         state = .starting
+        self.file = file
+        self.connection = connection
+        power.begin()
 
         do {
             let url = try await server.startServing(file)
             let media = CastClient.Media(
                 contentURL: url,
                 contentType: Self.contentType(for: file),
-                title: file.name
+                title: file.name,
+                currentTime: position
             )
             try await connection.load(media)
             state = .casting(url: url)
         } catch {
-            server.stopServing()
+            release()
             state = .failed(Self.message(for: error))
         }
     }
 
-    /// Stops serving the file.
+    /// Stops serving the file and forgets the cast.
     func stop() {
-        server.stopServing()
+        release()
+        file = nil
+        connection = nil
         state = .idle
+    }
+
+    /// Marks the cast as stopped because the connection was lost, keeping it resumable.
+    ///
+    /// Only a running cast is interrupted: a connection that fails before or after one is
+    /// the connection model's own state, not a playback state.
+    func interrupt(reason: String) {
+        guard case .casting = state else {
+            return
+        }
+        release()
+        state = .interrupted(reason: reason)
+    }
+
+    /// Reconnects to the device and reloads the file where the cast stopped.
+    func resume() async {
+        guard case let .interrupted(reason) = state,
+              let file,
+              let connection else {
+            return
+        }
+        let position = connection.resumePosition
+        state = .starting
+
+        await connection.reconnect()
+        guard case .starting = state else {
+            // The user stopped the cast while the session was reconnecting.
+            return
+        }
+        guard connection.isConnected else {
+            state = .interrupted(reason: Self.cannotReconnectMessage(from: reason))
+            return
+        }
+        await play(file: file, connection: connection, startAt: position ?? 0)
     }
 
     /// Stops the playing media and stops serving the file, keeping the session open.
@@ -129,6 +221,42 @@ final class PlaybackModel {
         }
         return type
     }
+
+    // MARK: - Wake
+
+    /// Resumes the interrupted cast after a wake, retrying while the network comes back.
+    ///
+    /// Internal so the recovery can be exercised without a real sleep.
+    func handleWake() async {
+        guard case .interrupted = state else {
+            return
+        }
+        await resume()
+
+        var attempt = 1
+        while case .interrupted = state, attempt < Self.wakeResumeAttempts {
+            await sleeper.sleep(for: Self.wakeResumeDelay)
+            guard case .interrupted = state else {
+                return
+            }
+            attempt += 1
+            await resume()
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func release() {
+        server.stopServing()
+        power.end()
+    }
+
+    private static func cannotReconnectMessage(from reason: String) -> String {
+        "The device did not answer after the connection was lost. Resume again, or connect again. \(reason)"
+    }
+
+    private static let wakeResumeAttempts = 3
+    private static let wakeResumeDelay = Duration.seconds(2)
 
     private static func message(for error: Error) -> String {
         if let localized = error as? LocalizedError, let description = localized.errorDescription {

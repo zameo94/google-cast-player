@@ -44,12 +44,20 @@ struct MainScreen: View {
         .task(id: searchID) {
             await devices.run()
         }
+        .task {
+            playback.startWatchingForWake()
+        }
         .onChange(of: devices.selectedDeviceID) {
             Task { await connection.disconnect() }
         }
         .onChange(of: connection.state) { _, newState in
-            if newState != .connected {
+            switch newState {
+            case .idle:
                 playback.stop()
+            case let .failed(message):
+                playback.interrupt(reason: message)
+            case .connected, .connecting:
+                break
             }
         }
         .fileImporter(
@@ -286,8 +294,9 @@ struct MainScreen: View {
 
             if let selectedDevice = devices.selectedDevice {
                 connectionRow(selectedDevice)
-                playbackRow(selectedDevice)
             }
+
+            playbackRow(devices.selectedDevice)
 
             Text("A blue card is selected, a green card is connected. The file is served from this Mac over the local network, and the controls follow what the device reports.")
                 .font(.caption)
@@ -453,8 +462,12 @@ struct MainScreen: View {
     }
 
     @ViewBuilder
-    private func playbackRow(_ device: CastDevice) -> some View {
-        if connection.state == .connected {
+    private func playbackRow(_ selectedDevice: CastDevice?) -> some View {
+        let device = selectedDevice ?? connection.connectedDevice
+
+        if case let .interrupted(reason) = playback.state {
+            interruptedPlaybackRow(reason: reason)
+        } else if connection.state == .connected, let device {
             switch playback.state {
             case .idle:
                 VStack(alignment: .leading, spacing: 4) {
@@ -493,6 +506,32 @@ struct MainScreen: View {
                     Button("Stop") {
                         Task { await playback.stopPlayback(connection: connection) }
                     }
+                }
+            case .interrupted:
+                EmptyView()
+            }
+        }
+    }
+
+    private func interruptedPlaybackRow(reason: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Playback stopped", systemImage: "moon.zzz.fill")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(Color.orange)
+
+            Text(reason)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 12) {
+                Button("Resume") {
+                    Task { await playback.resume() }
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Stop") {
+                    playback.stop()
                 }
             }
         }
