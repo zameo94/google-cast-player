@@ -11,6 +11,8 @@ protocol CastSessionControlling: AnyObject {
     ///
     /// - Returns: The transport id of the running receiver.
     func start() async throws -> String
+    /// Asks the running receiver to load `media`.
+    func loadMedia(_ media: CastClient.Media, transportID: String) async throws
     /// Closes the session.
     func stop()
 }
@@ -19,6 +21,10 @@ extension CastClient: CastSessionControlling {
     func start() async throws -> String {
         try await connect()
         return try await launchDefaultReceiver()
+    }
+
+    func loadMedia(_ media: CastClient.Media, transportID: String) async throws {
+        try await load(media, transportID: transportID)
     }
 
     func stop() {
@@ -99,6 +105,16 @@ final class CastConnectionModel {
         }
     }
 
+    /// Asks the connected device to load `media`.
+    func load(_ media: CastClient.Media) async throws {
+        guard state == .connected,
+              let transportID = receiverTransportID,
+              let session else {
+            throw CastClient.ClientError.notConnected
+        }
+        try await session.loadMedia(media, transportID: transportID)
+    }
+
     /// Ends the session and returns to the idle state.
     func disconnect() {
         attempt += 1
@@ -118,5 +134,11 @@ final class CastConnectionModel {
             return description
         }
         return error.localizedDescription
+    }
+}
+
+extension CastConnectionModel: CastMediaLoading {
+    var isConnected: Bool {
+        state == .connected
     }
 }

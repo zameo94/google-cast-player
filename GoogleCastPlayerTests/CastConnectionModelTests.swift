@@ -9,6 +9,8 @@ final class FakeCastSession: CastSessionControlling {
     var result: Result<String, any Error>
     private(set) var startCount = 0
     private(set) var stopCount = 0
+    private(set) var loadedMedia: [CastClient.Media] = []
+    var loadError: (any Error)?
 
     init(result: Result<String, any Error> = .success("web-5")) {
         self.result = result
@@ -17,6 +19,13 @@ final class FakeCastSession: CastSessionControlling {
     func start() async throws -> String {
         startCount += 1
         return try result.get()
+    }
+
+    func loadMedia(_ media: CastClient.Media, transportID: String) async throws {
+        if let loadError {
+            throw loadError
+        }
+        loadedMedia.append(media)
     }
 
     func stop() {

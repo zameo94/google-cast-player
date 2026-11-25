@@ -9,6 +9,7 @@ struct MainScreen: View {
     let media: MediaImportModel
     let devices: DeviceDiscoveryModel
     let connection: CastConnectionModel
+    let playback: PlaybackModel
 
     @State private var isFilePickerPresented = false
     @State private var isDropTargeted = false
@@ -45,6 +46,11 @@ struct MainScreen: View {
         }
         .onChange(of: devices.selectedDeviceID) {
             connection.disconnect()
+        }
+        .onChange(of: connection.state) { _, newState in
+            if newState != .connected {
+                playback.stop()
+            }
         }
         .fileImporter(
             isPresented: $isFilePickerPresented,
@@ -269,9 +275,10 @@ struct MainScreen: View {
 
             if let selectedDevice = devices.selectedDevice {
                 connectionRow(selectedDevice)
+                playbackRow(selectedDevice)
             }
 
-            Text("Connecting starts the receiver on the device. Sending the video arrives in the next step.")
+            Text("Casting serves the file from this Mac over the local network. Playback controls arrive in the next step.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -418,6 +425,74 @@ struct MainScreen: View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func playbackRow(_ device: CastDevice) -> some View {
+        if connection.state == .connected {
+            switch playback.state {
+            case .idle:
+                VStack(alignment: .leading, spacing: 4) {
+                    Button("Play on \(device.name)") {
+                        startCasting()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(media.selectedFile == nil)
+
+                    if media.selectedFile == nil {
+                        Text("Choose a video first.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            case .starting:
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Starting\u{2026}")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            case let .casting(url):
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Label("Sent to \(device.name)", systemImage: "airplayvideo")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(Color.green)
+                        Spacer(minLength: 0)
+                        Button("Stop") {
+                            playback.stopAndDisconnect(connection: connection)
+                        }
+                    }
+                    Text(url.absoluteString)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            case let .failed(message):
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Casting failed", systemImage: "xmark.circle.fill")
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(Color.red)
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Stop") {
+                        playback.stopAndDisconnect(connection: connection)
+                    }
+                }
+            }
+        }
+    }
+
+    private func startCasting() {
+        guard let file = media.selectedFile else {
+            return
+        }
+        Task {
+            await playback.play(file: file, connection: connection)
         }
     }
 
