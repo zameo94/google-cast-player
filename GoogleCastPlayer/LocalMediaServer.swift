@@ -13,11 +13,20 @@ import UniformTypeIdentifiers
 /// listener and its connections deliver callbacks on. `stop()` must therefore never be
 /// called from a server callback; callers start and stop it from their own context.
 final class LocalMediaServer: @unchecked Sendable {
-    enum ServerError: Error, Equatable {
+    enum ServerError: Error, Equatable, LocalizedError {
         /// The listener could not be created or started.
         case cannotStart(String)
         /// The file cannot be read.
         case fileNotReadable(String)
+
+        var errorDescription: String? {
+            switch self {
+            case let .cannotStart(reason):
+                return "The local server could not start: \(reason)"
+            case let .fileNotReadable(name):
+                return "\u{201C}\(name)\u{201D} cannot be read, so it cannot be served."
+            }
+        }
     }
 
     /// Where a receiver can fetch the served file.

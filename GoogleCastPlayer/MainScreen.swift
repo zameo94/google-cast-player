@@ -9,6 +9,7 @@ struct MainScreen: View {
     let media: MediaImportModel
     let devices: DeviceDiscoveryModel
     let connection: CastConnectionModel
+    let playback: PlaybackModel
 
     @State private var isFilePickerPresented = false
     @State private var isDropTargeted = false
@@ -44,7 +45,12 @@ struct MainScreen: View {
             await devices.run()
         }
         .onChange(of: devices.selectedDeviceID) {
-            connection.disconnect()
+            Task { await connection.disconnect() }
+        }
+        .onChange(of: connection.state) { _, newState in
+            if newState != .connected {
+                playback.stop()
+            }
         }
         .fileImporter(
             isPresented: $isFilePickerPresented,
@@ -269,9 +275,10 @@ struct MainScreen: View {
 
             if let selectedDevice = devices.selectedDevice {
                 connectionRow(selectedDevice)
+                playbackRow(selectedDevice)
             }
 
-            Text("Connecting starts the receiver on the device. Sending the video arrives in the next step.")
+            Text("A blue card is selected, a green card is connected. Casting serves the file from this Mac over the local network; pause, seek and reported playback state arrive in the next step.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -316,90 +323,103 @@ struct MainScreen: View {
     private func deviceCard(_ device: CastDevice) -> some View {
         let isSelected = devices.selectedDeviceID == device.id
         let isConnected = connection.state == .connected && connection.connectedDevice?.id == device.id
-        return Button {
-            devices.selectDevice(id: device.id)
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "tv")
-                    .font(.system(size: 18))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                    .frame(width: 24)
-                    .accessibilityHidden(true)
+        let isConnecting = connection.state == .connecting && connection.connectedDevice?.id == device.id
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(device.name)
-                        .font(.body.weight(isSelected ? .semibold : .regular))
-                        .foregroundStyle(.primary)
-                    if let modelName = device.modelName {
-                        Text(modelName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        return HStack(spacing: 12) {
+            Button {
+                devices.selectDevice(id: device.id)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "tv")
+                        .font(.system(size: 18))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .frame(width: 24)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(device.name)
+                            .font(.body.weight(isSelected ? .semibold : .regular))
+                            .foregroundStyle(.primary)
+                        if let modelName = device.modelName {
+                            Text(modelName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                }
 
-                Spacer(minLength: 0)
-
-                if isConnected {
-                    Label("Connected", systemImage: "checkmark.circle.fill")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(Color.green)
-                } else if isSelected {
-                    Text("Selected")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(Color.accentColor)
+                    Spacer(minLength: 0)
                 }
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .contentShape(RoundedRectangle(cornerRadius: 10))
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(cardFill(isSelected: isSelected, isConnected: isConnected))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(
-                        cardBorder(isSelected: isSelected, isConnected: isConnected),
-                        lineWidth: isSelected || isConnected ? 2 : 1
-                    )
+            .buttonStyle(.plain)
+            .accessibilityLabel(device.name)
+            .accessibilityValue(isSelected ? "Selected" : "Not selected")
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+
+            deviceCardAction(
+                device,
+                isSelected: isSelected,
+                isConnected: isConnected,
+                isConnecting: isConnecting
             )
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(device.name)
-        .accessibilityValue(isSelected ? "Selected" : "Not selected")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(cardFill(isSelected: isSelected, isConnected: isConnected))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(
+                    cardBorder(isSelected: isSelected, isConnected: isConnected),
+                    lineWidth: isSelected || isConnected ? 2 : 1
+                )
+        )
+    }
+
+    @ViewBuilder
+    private func deviceCardAction(
+        _ device: CastDevice,
+        isSelected: Bool,
+        isConnected: Bool,
+        isConnecting: Bool
+    ) -> some View {
+        if isConnecting {
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel("Connecting")
+        } else if isConnected {
+            Button("Disconnect") {
+                Task { await connection.disconnect() }
+            }
+            .controlSize(.small)
+        } else if isSelected {
+            Button("Connect") {
+                Task { await connection.connect(to: device) }
+            }
+            .controlSize(.small)
+            .buttonStyle(.borderedProminent)
+        }
     }
 
     @ViewBuilder
     private func connectionRow(_ device: CastDevice) -> some View {
         switch connection.state {
         case .idle:
-            Button("Connect") {
-                Task { await connection.connect(to: device) }
-            }
-            .buttonStyle(.borderedProminent)
+            EmptyView()
         case .connecting:
             HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
                 Text("Connecting\u{2026}")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 Button("Cancel") {
-                    connection.disconnect()
+                    Task { await connection.disconnect() }
                 }
             }
         case .connected:
-            HStack(spacing: 8) {
-                Label("Connected", systemImage: "checkmark.circle.fill")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(Color.green)
-                Spacer(minLength: 0)
-                Button("Disconnect") {
-                    connection.disconnect()
-                }
-            }
+            EmptyView()
         case let .failed(message):
             VStack(alignment: .leading, spacing: 6) {
                 Label("Not connected", systemImage: "xmark.circle.fill")
@@ -414,10 +434,78 @@ struct MainScreen: View {
                         Task { await connection.connect(to: device) }
                     }
                     Button("Dismiss") {
-                        connection.disconnect()
+                        Task { await connection.disconnect() }
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func playbackRow(_ device: CastDevice) -> some View {
+        if connection.state == .connected {
+            switch playback.state {
+            case .idle:
+                VStack(alignment: .leading, spacing: 4) {
+                    Button("Play on \(device.name)") {
+                        startCasting()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(media.selectedFile == nil)
+
+                    if media.selectedFile == nil {
+                        Text("Choose a video first.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            case .starting:
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Starting\u{2026}")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            case let .casting(url):
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Label("Sent to \(device.name)", systemImage: "airplayvideo")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(Color.green)
+                        Spacer(minLength: 0)
+                        Button("Stop") {
+                            Task { await playback.stopPlayback(connection: connection) }
+                        }
+                    }
+                    Text(url.absoluteString)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            case let .failed(message):
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Casting failed", systemImage: "xmark.circle.fill")
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(Color.red)
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Stop") {
+                        Task { await playback.stopPlayback(connection: connection) }
+                    }
+                }
+            }
+        }
+    }
+
+    private func startCasting() {
+        guard let file = media.selectedFile else {
+            return
+        }
+        Task {
+            await playback.play(file: file, connection: connection)
         }
     }
 

@@ -11,16 +11,17 @@ uploaded to a cloud service, and no external media server is involved.
 Development status
 ------------------
 
-The project is in **Phase 5 — Cast communication**. The application imports a
+The project is in **Phase 6 — end-to-end streaming**. The application imports a
 local video file, reports its name, container format, size, duration, resolution
 and codecs, judges the format against the playback profile the app targets (MP4,
 H.264, AAC), lists the Chromecast and Google TV devices on the local network,
 and can open a session with a selected device: it connects over TLS, starts the
-Default Media Receiver and reports the state the device confirms. A local HTTP
-server can serve the selected file with byte-range support, and the client can
-send a load command; wiring the two into a playback session is the next step.
-The format verdict describes the file, not a device. See ROADMAP.md for the
-phased plan and acceptance criteria.
+Default Media Receiver and reports the state the device confirms. Casting a video
+starts the local HTTP server for that file and hands the URL to the device, so the
+receiver fetches the media directly from the Mac; stopping the cast closes the
+server. The format verdict describes the file, not a device. Playback controls and
+reported playback state come next; see ROADMAP.md for the phased plan and
+acceptance criteria.
 
 Requirements
 ------------
@@ -56,7 +57,7 @@ Project layout
 | Path | Purpose |
 | --- | --- |
 | `GoogleCastPlayer/` | Application sources: entry point, media import state, media model, SwiftUI screen. |
-| `GoogleCastPlayerTests/` | Unit tests for the media model, the importer and the import state. |
+| `GoogleCastPlayerTests/` | Tests for the media model and importer, metadata, discovery, the HTTP server, the Cast protocol and the playback orchestration. |
 | `GoogleCastPlayer.xcodeproj` | Xcode project with the application and unit test targets. |
 | `ROADMAP.md` | Product vision, phases and acceptance criteria. |
 | `DEVELOPMENT.md` | Verified development status, decisions and next objective. |
@@ -83,7 +84,7 @@ Architecture
 * `CastMessage`, `TLSCastTransport` and `CastClient` implement the Cast V2 protocol
   the app needs: message framing, the connection and heartbeat namespaces, receiver
   launch and the media load command. `CastConnectionModel` owns the session state
-  the window shows.
+  the window shows, and `PlaybackModel` owns the server lifetime while a cast runs.
 * `MainScreen` renders the models and forwards user actions. It contains no
   validation, extraction, networking or protocol code.
 

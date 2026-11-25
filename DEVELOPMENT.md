@@ -1,16 +1,16 @@
 Google Cast Player — Development
 
 1. Current State
-Overall status: Phase 0 to Phase 4 on main, with physical-device discovery still pending; Phase 5 implemented and integrated into dev, real-device verification pending.
-Current development phase: Phase 5 — Cast Communication (implemented and integrated into dev; protocol and state verified by tests, real-device verification pending).
-Current milestone: Real-device verification of the connection, then promotion.
-Current feature branches: feature/cast-communication (Phase 5), created from main at c31a80b and merged into dev.
+Overall status: Phase 0 to Phase 5 on main and verified on a physical device; Phase 6 implemented, verified on the same device and integrated into dev.
+Current development phase: Phase 6 — End-to-End Local Video Streaming (verified on a Google TV and integrated into dev; promotion to main pending).
+Current milestone: Promotion of dev to main and Phase 7 preparation.
+Current feature branches: feature/end-to-end-streaming (Phase 6), created from main at 51cdca4 and merged into dev.
 Current working branch: dev, used only to integrate completed feature branches; feature work happens on feature/<name> branches.
-Last verified commit: main is c31a80b; feature commits are listed in section 7.
+Last verified commit: main is 51cdca4; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
-Last verified test run: 125 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
+Last verified test run: 137 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
 Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
-Last remote synchronization: main matches origin/main at c31a80b. dev is ahead of origin/dev with the integrated Phase 5 work; nothing has been pushed.
+Last remote synchronization: main matches origin/main at 51cdca4. dev is ahead of origin/dev with the integrated Phase 6 work; nothing has been pushed.
 
 2. Verified Environment
 Verified on the development machine before this status was written:
@@ -85,12 +85,24 @@ Phase 5 — Cast communication:
 * `CastClient` runs the protocol the app needs: the connection namespace, heartbeat replies and its own pings, launching the Default Media Receiver, and sending a load command with the media URL, content type and stream type.
 * `CastDevice` now carries the Bonjour endpoint discovery reported, so a session can be opened without resolving the service again.
 * `CastConnectionModel` exposes real session states: idle, connecting, connected and failed with the reason the device or transport reported.
-* The window shows the state: a Connect button, a spinner with Cancel while connecting, a green Connected label and card with Disconnect, and a red failure with the message, a retry and a dismiss action.
+* The window shows the state on the device card itself: a selected card is blue and offers Connect, a spinner appears on it while connecting, and a connected card turns green and offers Disconnect; Cancel and the failure message with retry and dismiss live in the session row, and connecting again to the already connected device does nothing.
 * 21 additional unit tests (125 in total) covering message encoding and framing, the client handshake against a scripted transport, heartbeat behaviour, load payloads, timeouts, transport loss and the connection state machine.
 
+Phase 6 — end-to-end local video streaming:
+
+* `PlaybackModel` owns one cast: it starts the local server for the selected file, builds the media request from its MIME type, hands the URL to the connected device, and stops serving when the cast ends or fails.
+* `MediaServing` and `CastMediaLoading` keep the orchestration testable without a socket or a device; `LocalMediaServer` and `CastConnectionModel` provide the real implementations.
+* The window offers "Play on <device>" once a device is connected and a video is selected, shows a spinner while starting, prints the served URL once the device accepted it, and offers Stop.
+* Stop and Disconnect are separate actions: Stop ends the media and keeps the session, so the receiver stays reachable for another cast, while Disconnect also stops the receiver application and closes the connection.
+* Ending a session sends a media STOP, a receiver STOP and a connection CLOSE before dropping the socket, then stops the server; closing the socket alone left the receiver playing and kept its cast screen alive. The stop commands carry a request id, which the receiver requires and silently ignores otherwise, and the receiver STOP falls back to stopping the current app when no session id was reported.
+* Leaving the connected state stops the server, so the file stops being reachable exactly when the cast ends.
+* Server failures and load failures now carry user-facing descriptions.
+* 12 additional unit tests (137 in total), including an integration test that fetches the exact URL handed to the device, tests of the stop sequence, of stopping playback alone, of the cast orchestration and of a repeated connect.
+
 4. In Progress
-* Promotion of dev to main: Phase 5 is integrated, but its acceptance requires a connection verified on a real device, which has not happened yet.
-* Phase 6 (end-to-end streaming) has not started and waits for the real-device verification of Phase 5.
+* Promotion of dev to main: Phase 6 is verified on hardware and integrated into dev, and needs the user's approval to reach main.
+* Stop keeps the session open by design, so the receiver and the cast indicator stay; Disconnect stops the receiver and closes the session, and the user confirmed both behaviours on hardware.
+* Phase 7 (playback controls and reported state) has not started and waits for the promotion of dev to main.
 
 5. Quality Gate and Tooling Decisions
 * The review gate is enforced by a Git pre-commit hook installed with scripts/install-git-hooks.sh; the hook refuses to run when gga or the local .gga configuration is missing instead of skipping the review.
@@ -114,7 +126,7 @@ Test:
 Verified on 2026-11-25 with Xcode 27.2:
 
 * Clean Debug build succeeded with no compiler warnings.
-* Test run succeeded: 125 tests in 15 suites.
+* Test run succeeded: 137 tests in 16 suites.
 * The built application launches, keeps running and quits cleanly.
 * An offscreen render confirmed the layout of the video states. The new screen hosts a scroll view, which the offscreen renderer cannot draw, so the device section is a manual check.
 * Discovery was verified end to end against a Bonjour service registered on this machine: the browser reported the device once with its TXT record, and reported it removed when the service stopped. The test host itself cannot browse, because macOS gives it no local network access without a user decision.
@@ -131,7 +143,7 @@ Manual checks (require a graphical session and cannot be automated on this machi
 8. Select a device; the selection must be visible and must survive other devices appearing.
 9. Turn the selected device off or block its network; the device must disappear and its selection must be cleared.
 
-Status of these checks: the user exercised the import flow, the metadata display and the verdict in the running app on 2026-11-25 (items 1, 2, 3, 4 and 6). Item 5 and the device checks 7 to 9 are pending; the device checks need a physical Cast device powered on and reachable.
+Status of these checks: on 2026-11-25 the user exercised the import flow, the metadata display and the verdict (items 1, 2, 3, 4 and 6) and, on a Google TV, local network access, the device list, the selection, the session, casting a compatible MP4 and the Stop and Disconnect actions (items 7 and 8, plus the cast flow). Item 5 (unreadable container) and item 9 (device turned off while connected) were not exercised.
 
 Note: the verdict describes the container and codecs only. Actual playback on a receiver is not verified and is not promised by the label.
 
@@ -140,7 +152,7 @@ Continuous integration: .github/workflows/ci.yml builds and tests the project on
 7. Recent Work Log
 The log is chronological: each row records what happened on that date, not the current state, which section 1 reports.
 
-| Date | Branch | Work | Verification | Commit |
+| Date | Branch | Work | Verification at that date | Commit |
 | --- | --- | --- | --- | --- |
 | 2026-11-24 | main | Initial repository setup and project instructions | Repository state inspected | d3a2b76 |
 | 2026-11-24 | main | Product roadmap and development documentation | Documented | e8f9263, 59b6adf |
@@ -170,6 +182,15 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-25 | feature/cast-communication | Connection state and the connection UI | 125 tests passed | 0de3462 |
 | 2026-11-25 | feature/cast-communication | Session controls: cancel, disconnect, dismiss | 125 tests passed | 25d1b2c |
 | 2026-11-25 | dev | Integrated the Phase 5 branch | Build and tests re-run on dev after the merge | see section 6 |
+| 2026-11-25 | main | Pull request #6 merged dev into main | Build and tests verified on dev before the merge | 51cdca4 |
+| 2026-11-25 | feature/end-to-end-streaming | Cast orchestration, cast controls and the served URL in the window | 133 tests passed; gga rejected an unguarded URL literal in the tests and it was fixed | bafdfa4 |
+| 2026-11-25 | feature/end-to-end-streaming | Stop the media and the receiver before closing the session | 134 tests passed; found because disconnecting left the receiver playing on hardware | d35e6d3 |
+| 2026-11-25 | feature/end-to-end-streaming | Stop commands now carry request ids, and the stop runs before the server is stopped | 134 tests passed; the missing request id explains the stop being ignored on hardware | ab1cac5 |
+| 2026-11-25 | feature/end-to-end-streaming | Stop the media only, leaving the session open, and keep Disconnect for ending it | 136 tests passed | 50ebf78 |
+| 2026-11-25 | feature/end-to-end-streaming | Connect from the device card, with blue for selection and green for connection | 136 tests passed | 2e272b5 |
+| 2026-11-25 | feature/end-to-end-streaming | Disconnect replaces Connect on a connected card, and a repeated connect keeps the session | 137 tests passed | 9f2c275 |
+| 2026-11-25 | feature/end-to-end-streaming | A single disconnect action on the card | 137 tests passed | ba87133 |
+| 2026-11-25 | dev | Integrated the Phase 6 branch | Build and tests re-run on dev after the merge | see section 6 |
 | 2026-11-25 | dev | Integrated the Phase 3 branch | Build and tests re-run on dev after the merge | see section 6 |
 
 8. Blockers and Risks
@@ -177,27 +198,27 @@ No active blocker.
 
 Risks and pending verification:
 
-* Phase 0 to Phase 4 reached main through pull requests #2 to #5. Phase 5 is integrated into dev; its acceptance requires a connection verified against a real device, which has not happened yet.
-* Discovery has not seen a physical Cast device yet: it was verified against a Bonjour service registered on this machine, which exercises the same browser path. The acceptance criterion about real devices needs a device powered on and reachable.
+* Phase 0 to Phase 5 reached main through pull requests #2 to #6. Phase 6 is verified on a physical device and integrated into dev; only the promotion to main is left before ROADMAP.md allows it to be marked complete.
+* Discovery, connection and playback were confirmed on a Google TV on 2026-11-25. Other device models, and how quickly a device returns to its ambient screen after Stop, remain unverified.
 * The test host of the automated suite cannot browse the network, because macOS grants local network access to an app only after the user allows it. Discovery therefore has no automated network test.
 * Continuous integration has not run on GitHub yet; it can only be verified after the first push.
 * The Cast client accepts the device's self-signed certificate, as Cast requires; the session is therefore trusted because it is on the local network, not because of a certificate chain.
-* Nothing yet ties the connection to the media server: the receiver is started but no media URL is sent, so a connected session shows the receiver's idle screen.
+* Casting again without stopping first stops the previous server, so an older session loses its media source; the window offers Stop for that, and broadcasting a replacement session belongs to the playback work.
 * The media server speaks plain HTTP with no authentication beyond the unguessable per-session path. It is meant for a trusted local network and only while a session needs it; the server is not exposed outside the LAN by the app.
-* The server is not wired into the window yet: nothing starts it automatically, and Phase 6 owns that lifecycle. Its behavior is covered by tests instead.
-* Chromecast discovery, connectivity and playback have never been exercised; the corresponding phases are not started.
+* The server runs only while a cast is active: `PlaybackModel` starts it for the selected file and stops it when the cast ends, and its behaviour is covered by tests.
+* The interactive checklist was exercised by the user on a Google TV; items 5 (unreadable container) and 9 (device turned off while connected) were not exercised.
 * The compatibility verdict describes the container and codecs only. Real playback on a receiver is unverified, so the interface never labels a file as playable, only as matching or not matching the format profile.
 * Interactive and visual checks are manual: the shell has neither screen recording nor accessibility permission, and there is no UI test target. Section 6 records which checks the user exercised and which are still pending.
 * Repository branch protection and required status checks cannot be configured from this environment and must be verified on GitHub by the user.
 * The review gate depends on the locally configured AI provider. A review that misjudges valid code blocks the commit until it is rerun; build and test results remain the authoritative verification.
 
 9. Next Objective
-Verify Phase 5 on hardware and promote it:
-1. Connect to a real device from the app and confirm the receiver starts and the state turns green (manual check, needs the device on the network).
-2. Record the outcome here, then push dev and authorize the promotion of dev to main (both require explicit user approval).
-3. Only then start Phase 6 — end-to-end local video streaming — following ROADMAP.md.
+Promote Phase 6 and prepare Phase 7:
+1. Push dev and verify that the GitHub Actions workflow runs successfully on it (pushing requires explicit user approval).
+2. Authorize the promotion of dev to main so Phase 6 can be marked complete.
+3. Only then start Phase 7 — playback controls and reported state — following ROADMAP.md.
 
-Do not start media serving, Cast communication or playback before their planned phases.
+Do not start playback controls or release work before their planned phases.
 
 10. Maintenance Rules
 * Update this file after each meaningful development milestone.
