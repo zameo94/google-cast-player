@@ -164,7 +164,11 @@ loss cannot put the Mac to sleep before the recovery had a chance to run.
 Every step of that lifecycle is written to the unified log, which is where to look when a
 session ends hours later:
 
-    log show --last 2h --predicate 'subsystem == "io.github.zameo94.GoogleCastPlayer"'
+    log show --last 2h --info --predicate 'subsystem == "io.github.zameo94.GoogleCastPlayer"'
+
+`--info` is needed because those messages are informational; without it only errors and
+faults appear. The same entries can be watched live in Console.app by filtering on the
+subsystem, or with `log stream --level info --predicate 'subsystem == "io.github.zameo94.GoogleCastPlayer"'.
 
 The assertion can be checked from a terminal while a cast is running:
 
