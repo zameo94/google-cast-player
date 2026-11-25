@@ -85,7 +85,7 @@ Phase 5 — Cast communication:
 * `CastClient` runs the protocol the app needs: the connection namespace, heartbeat replies and its own pings, launching the Default Media Receiver, and sending a load command with the media URL, content type and stream type.
 * `CastDevice` now carries the Bonjour endpoint discovery reported, so a session can be opened without resolving the service again.
 * `CastConnectionModel` exposes real session states: idle, connecting, connected and failed with the reason the device or transport reported.
-* The window shows the state: a Connect button, a spinner while connecting, a green Connected label and card, and a red failure with the message and a retry.
+* The window shows the state: a Connect button, a spinner with Cancel while connecting, a green Connected label and card with Disconnect, and a red failure with the message, a retry and a dismiss action.
 * 21 additional unit tests (125 in total) covering message encoding and framing, the client handshake against a scripted transport, heartbeat behaviour, load payloads, timeouts, transport loss and the connection state machine.
 
 4. In Progress
