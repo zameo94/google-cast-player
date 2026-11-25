@@ -76,7 +76,13 @@ final class CastConnectionModel {
     }
 
     /// Opens a session with `device` and starts its receiver.
+    ///
+    /// Connecting to the device that is already connected is a no-op, so a stray tap
+    /// never tears down a running session.
     func connect(to device: CastDevice) async {
+        if state == .connected, connectedDevice?.id == device.id {
+            return
+        }
         guard let endpoint = device.endpoint else {
             connectedDevice = device
             state = .failed("This device cannot be reached yet. Search again to refresh it.")

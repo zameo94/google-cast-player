@@ -356,7 +356,12 @@ struct MainScreen: View {
             .accessibilityValue(isSelected ? "Selected" : "Not selected")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
 
-            deviceCardAction(device, isSelected: isSelected, isConnecting: isConnecting)
+            deviceCardAction(
+                device,
+                isSelected: isSelected,
+                isConnected: isConnected,
+                isConnecting: isConnecting
+            )
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -377,12 +382,18 @@ struct MainScreen: View {
     private func deviceCardAction(
         _ device: CastDevice,
         isSelected: Bool,
+        isConnected: Bool,
         isConnecting: Bool
     ) -> some View {
         if isConnecting {
             ProgressView()
                 .controlSize(.small)
                 .accessibilityLabel("Connecting")
+        } else if isConnected {
+            Button("Disconnect") {
+                Task { await connection.disconnect() }
+            }
+            .controlSize(.small)
         } else if isSelected {
             Button("Connect") {
                 Task { await connection.connect(to: device) }

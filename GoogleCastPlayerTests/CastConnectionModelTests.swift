@@ -104,6 +104,19 @@ struct CastConnectionModelTests {
         #expect(message.contains("cannot be reached"))
     }
 
+    @Test func connectingAgainToTheSameDeviceKeepsTheSession() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        let device = device()
+        await connection.connect(to: device)
+
+        await connection.connect(to: device)
+
+        #expect(session.startCount == 1)
+        #expect(session.stopCount == 0)
+        #expect(connection.state == .connected)
+    }
+
     @Test func stopsPlaybackWithoutEndingTheSession() async {
         let session = FakeCastSession()
         let connection = model(session: session)
@@ -129,14 +142,19 @@ struct CastConnectionModelTests {
         #expect(session.stopCount == 1)
     }
 
-    @Test func stopsThePreviousSessionBeforeConnectingAgain() async {
+    @Test func stopsThePreviousSessionBeforeConnectingToAnotherDevice() async {
         let first = FakeCastSession()
         let second = FakeCastSession()
         var sessions = [first, second]
         let connection = CastConnectionModel(makeSession: { _ in sessions.removeFirst() })
         await connection.connect(to: device())
+        let otherDevice = CastDevice(
+            id: "bedroom",
+            name: "Bedroom",
+            endpoint: .service(name: "Bedroom", type: "_googlecast._tcp", domain: "local.", interface: nil)
+        )
 
-        await connection.connect(to: device())
+        await connection.connect(to: otherDevice)
 
         #expect(first.stopCount == 1)
         #expect(second.startCount == 1)
