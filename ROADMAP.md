@@ -208,7 +208,7 @@ Acceptance criteria:
 * Server and Cast session resources are cleaned up correctly.
 * The complete workflow has been verified on physical hardware.
 Phase 7 — Playback Controls and User Experience
-Status: Implemented and integrated into dev; controls and reported state are covered by tests, hardware verification pending.
+Status: Implemented and on main; controls and reported state are covered by tests, hardware verification pending.
 Objectives:
 * Implement play and pause.
 * Implement stop/disconnect.
@@ -227,7 +227,7 @@ Acceptance criteria:
 * Common user errors have clear explanations.
 * Controls never present simulated functionality as a real Cast operation.
 Phase 8 — Stabilization and MVP Release
-Status: Not assessed.
+Status: In progress; release candidate 1.0.0 is built, hardware verification and release approval pending.
 Objectives:
 * Perform end-to-end testing.
 * Review security and local network exposure.

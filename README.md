@@ -11,7 +11,7 @@ uploaded to a cloud service, and no external media server is involved.
 Development status
 ------------------
 
-The project is in **Phase 7 — playback controls**. The application imports a local
+The project is in **Phase 8 — stabilization and release candidate**. The application imports a local
 video file, reports its name, container format, size, duration, resolution and codecs,
 judges the format against the playback profile the app targets (MP4, H.264, AAC),
 lists the Chromecast and Google TV devices on the local network, and can open a
@@ -89,6 +89,69 @@ Architecture
   the window shows, and `PlaybackModel` owns the server lifetime while a cast runs.
 * `MainScreen` renders the models and forwards user actions. It contains no
   validation, extraction, networking or protocol code.
+
+Installation
+------------
+
+The MVP is built from source; there is no notarized distribution yet.
+
+1. Install Xcode 16 or later (verified with Xcode 27.2).
+2. Open `GoogleCastPlayer.xcodeproj`, choose the `GoogleCastPlayer` scheme and press
+   Run, or build it from the command line:
+
+   ```sh
+   xcodebuild -project GoogleCastPlayer.xcodeproj -scheme GoogleCastPlayer \
+     -configuration Release -destination 'platform=macOS' build
+   ```
+
+The built application is ad-hoc signed for local use. Shipping a signed, notarized
+build is part of the release work that still needs the maintainer's approval.
+
+Permissions
+-----------
+
+* **Local network**: needed to find Cast devices and to let a receiver fetch the file.
+  macOS asks the first time the app searches; if it was denied, the app says so instead
+  of showing an empty list. It can be re-enabled in System Settings > Privacy &
+  Security > Local Network.
+* No camera, microphone, contacts, or photo access is requested. The app reads only the
+  file the user selects.
+
+Supported formats
+-----------------
+
+* Target profile: MP4 container with H.264 video and AAC audio.
+* MOV is reported as "may not be compatible" because MP4 is the prioritized container.
+* Other containers (MKV, AVI, WebM) and codecs (HEVC on older receivers, VP9, ALAC) are
+  reported as unsupported or device-dependent. There is no transcoding: a file that the
+  receiver cannot decode is reported, not converted.
+
+Security and privacy
+--------------------
+
+* Files never leave the local network and are never uploaded; there is no cloud
+  component, no account, and no analytics.
+* The HTTP server runs only while a cast is active, serves only the selected file, and
+  exposes it under an unguessable per-session path. Every other path answers 404, so the
+  file system is not reachable. Requests are size-capped, malformed requests are
+  rejected, and the server stops when the cast ends.
+* The server speaks plain HTTP with no authentication beyond the path: it is meant for a
+  trusted local network. Do not cast on a network you do not trust.
+* The TLS connection to the device accepts the device's self-signed certificate, which
+  is what Cast devices present; trust comes from the local network, not from a
+  certificate chain.
+
+Known limitations
+-----------------
+
+* No transcoding: MKV, AVI and MOV files are not castable, and HEVC depends on the
+  receiver model.
+* The compatibility verdict describes the container and codecs of the file; it does not
+  promise playback on a specific device.
+* The displayed playback position is interpolated between status updates and can drift
+  by about a second.
+* Pause, seek and reported playback state are covered by tests but were not exercised on
+  a physical device at the time this section was written.
 
 Contribution workflow
 ---------------------

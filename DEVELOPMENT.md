@@ -1,16 +1,16 @@
 Google Cast Player — Development
 
 1. Current State
-Overall status: Phase 0 to Phase 6 on main and verified on a physical device; Phase 7 implemented and integrated into dev, hardware verification pending.
-Current development phase: Phase 7 — Playback Controls and User Experience (implemented and integrated into dev; controls and reported state covered by tests, hardware verification pending).
-Current milestone: Hardware verification of the playback controls, then promotion.
-Current feature branches: feature/playback-controls (Phase 7), created from main at 021984c and merged into dev.
-Current working branch: dev, used only to integrate completed feature branches; feature work happens on feature/<name> branches.
-Last verified commit: main is 021984c; feature commits are listed in section 7.
+Overall status: Phase 0 to Phase 7 on main, with Phase 7 awaiting its hardware check; Phase 8 is in progress on its feature branch.
+Current development phase: Phase 8 — Stabilization and MVP Release (stabilization in progress; release candidate 1.0.0 built, hardware check and release approval pending).
+Current milestone: Stabilization review, hardware verification of the playback controls, and release candidate approval.
+Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3.
+Current working branch: feature/release-stabilization.
+Last verified commit: main is be69da3; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
-Last verified test run: 146 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
+Last verified test run: 148 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
 Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
-Last remote synchronization: main matches origin/main at 021984c. dev is ahead of origin/dev with the integrated Phase 7 work; nothing has been pushed.
+Last remote synchronization: main matches origin/main at be69da3. The Phase 8 branch has not been pushed.
 
 2. Verified Environment
 Verified on the development machine before this status was written:
@@ -108,10 +108,21 @@ Phase 7 — playback controls and reported state:
 * The launch timeout is driven by an injectable sleeper, so timeout behaviour is tested without waiting on wall time.
 * 9 additional unit tests (146 in total) covering status parsing, command payloads, snapshot mapping, status merging and the timeout path.
 
+Phase 8 — stabilization and release candidate:
+
+* The client reports when the device stops its receiver, and the window turns that into a clear "connect again" failure instead of showing a session that no longer exists.
+* Loading, connecting, searching and casting indicators carry accessibility labels, and the device section offers an explicit "Search for devices again" action.
+* The marketing version for the release candidate is 1.0.0.
+* Release configuration builds successfully; automated tests run in Debug, because they use `@testable` and testability is intentionally off in Release.
+* The README now documents installation, permissions, supported formats, security and privacy, and known limitations.
+* Security review, as far as this environment allows: the server serves one file behind an unguessable path, answers 404 elsewhere, caps request size, rejects malformed requests, stops with the cast, and never leaves the LAN; the device certificate is accepted because Cast devices are self-signed; the HTTP traffic itself is plain, which is documented as a trusted-LAN assumption.
+* 2 additional unit tests (148 in total) covering the receiver-stopped path in the client and in the connection state.
+
 4. In Progress
-* Hardware verification of Phase 7: play, pause, seek and the reported state are integrated but have not been exercised on the Google TV yet.
+* Hardware verification of Phase 7: play, pause, seek and the reported state are on main but have not been exercised on the Google TV yet.
+* Release candidate 1.0.0 is built from source and ad-hoc signed; signing, notarization and distribution need the maintainer's decision.
 * Stop keeps the session open by design, so the receiver and the cast indicator stay; Disconnect stops the receiver and closes the session, and the user confirmed both behaviours on hardware.
-* Phase 8 (stabilization and release) has not started and waits for the Phase 7 verification.
+* Release approval has not been given; nothing has been tagged, notarized or published.
 
 5. Quality Gate and Tooling Decisions
 * The review gate is enforced by a Git pre-commit hook installed with scripts/install-git-hooks.sh; the hook refuses to run when gga or the local .gga configuration is missing instead of skipping the review.
@@ -135,7 +146,7 @@ Test:
 Verified on 2026-11-25 with Xcode 27.2:
 
 * Clean Debug build succeeded with no compiler warnings.
-* Test run succeeded: 146 tests in 16 suites.
+* Test run succeeded: 148 tests in 16 suites. The Release configuration builds; tests run in Debug because they use `@testable`.
 * The built application launches, keeps running and quits cleanly.
 * An offscreen render confirmed the layout of the video states. The new screen hosts a scroll view, which the offscreen renderer cannot draw, so the device section is a manual check.
 * Discovery was verified end to end against a Bonjour service registered on this machine: the browser reported the device once with its TXT record, and reported it removed when the service stopped. The test host itself cannot browse, because macOS gives it no local network access without a user decision.
@@ -203,6 +214,8 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-25 | main | Pull request #7 merged dev into main | Build and tests verified on dev before the merge | 021984c |
 | 2026-11-25 | feature/playback-controls | Media status parsing, playback commands and the transport controls | 146 tests passed; gga required app-level playback types and deterministic timeout tests | c721470 |
 | 2026-11-25 | dev | Integrated the Phase 7 branch | Build and tests re-run on dev after the merge | see section 6 |
+| 2026-11-25 | main | Pull request #8 merged dev into main | Build and tests verified on dev before the merge | be69da3 |
+| 2026-11-25 | feature/release-stabilization | Receiver-stop handling, accessibility labels, release documentation and version 1.0.0 | 148 tests passed in Debug, Release build succeeded | this commit |
 | 2026-11-25 | dev | Integrated the Phase 3 branch | Build and tests re-run on dev after the merge | see section 6 |
 
 8. Blockers and Risks
@@ -210,7 +223,7 @@ No active blocker.
 
 Risks and pending verification:
 
-* Phase 0 to Phase 6 reached main through pull requests #2 to #7. Phase 7 is integrated into dev and needs the hardware check before promotion.
+* Phase 0 to Phase 7 reached main through pull requests #2 to #8. Phase 7 still needs its hardware check, and Phase 8 is in progress on its branch.
 * Discovery, connection and playback were confirmed on a Google TV on 2026-11-25. Other device models, and how quickly a device returns to its ambient screen after Stop, remain unverified.
 * The test host of the automated suite cannot browse the network, because macOS grants local network access to an app only after the user allows it. Discovery therefore has no automated network test.
 * Continuous integration has not run on GitHub yet; it can only be verified after the first push.
@@ -226,10 +239,10 @@ Risks and pending verification:
 * The review gate depends on the locally configured AI provider. A review that misjudges valid code blocks the commit until it is rerun; build and test results remain the authoritative verification.
 
 9. Next Objective
-Verify Phase 7 on hardware and promote it:
-1. On a Google TV, cast a video and exercise play, pause and seek; the window must follow the state the device reports.
-2. Record the outcome here, then push dev and authorize the promotion of dev to main (both require explicit user approval).
-3. Only then start Phase 8 — stabilization and MVP release — following ROADMAP.md.
+Finish the release candidate:
+1. Exercise the cast flow and the playback controls on a Google TV and record the outcome here; this closes the remaining hardware items of Phase 7 and Phase 8.
+2. Decide the distribution path for 1.0.0: signing identity, notarization, and whether a release is published. Nothing is tagged or published without that explicit approval.
+3. Integrate feature/release-stabilization into dev and promote it when the checks above are recorded.
 
 Do not start release work before its planned phase.
 
