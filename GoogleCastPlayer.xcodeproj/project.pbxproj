@@ -16,6 +16,16 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		1A0000000000000000000080 /* Exceptions for "GoogleCastPlayer" folder in "GoogleCastPlayer" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 1A0000000000000000000010 /* GoogleCastPlayer */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileReference section */
 		1A0000000000000000000020 /* GoogleCastPlayer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoogleCastPlayer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A0000000000000000000021 /* GoogleCastPlayerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GoogleCastPlayerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -24,6 +34,9 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		1A0000000000000000000030 /* GoogleCastPlayer */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				1A0000000000000000000080 /* Exceptions for "GoogleCastPlayer" folder in "GoogleCastPlayer" target */,
+			);
 			path = GoogleCastPlayer;
 			sourceTree = "<group>";
 		};
@@ -313,11 +326,8 @@
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = GoogleCastPlayer/Info.plist;
 				DEAD_CODE_STRIPPING = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Google Cast Player";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -337,11 +347,8 @@
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = GoogleCastPlayer/Info.plist;
 				DEAD_CODE_STRIPPING = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Google Cast Player";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

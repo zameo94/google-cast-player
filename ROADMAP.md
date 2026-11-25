@@ -108,7 +108,7 @@ Acceptance criteria:
 * The selection can be removed and replaced.
 * Meaningful automated tests cover the media information model and relevant behavior.
 Phase 2 — Media Access, Metadata, and Compatibility
-Status: Implemented and verified on its feature branch; pending integration into dev and promotion to main.
+Status: Complete.
 Objectives:
 * Make local file access reliable.
 * Implement security-scoped resource handling where required.
@@ -123,7 +123,7 @@ Acceptance criteria:
 * Compatibility assessment is covered by automated tests.
 * Unsupported formats are reported without crashing the application.
 Phase 3 — Cast Device Discovery
-Status: Not assessed.
+Status: Implemented and integrated into dev; discovery verified against a registered Bonjour service, real-device discovery pending; promotion to main pending.
 Objectives:
 * Discover Chromecast and Google TV devices on the local network.
 * Evaluate Bonjour/mDNS and other technically justified discovery mechanisms.

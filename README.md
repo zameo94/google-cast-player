@@ -11,13 +11,13 @@ uploaded to a cloud service, and no external media server is involved.
 Development status
 ------------------
 
-The project is in **Phase 2 — media access, metadata and compatibility**. The
-application imports a local video file, shows its name, container format, size,
-duration, resolution and codecs, and reports whether the format matches the
-playback profile the app targets: MP4 container, H.264 video, AAC audio. That
-verdict describes the file, not a device, and it does not promise playback.
-Device discovery, media serving, Cast communication and playback are not
-implemented yet; see ROADMAP.md for the phased plan and acceptance criteria.
+The project is in **Phase 3 — Cast device discovery**. The application imports a
+local video file, reports its name, container format, size, duration, resolution
+and codecs, judges the format against the playback profile the app targets (MP4,
+H.264, AAC), and lists the Chromecast and Google TV devices it finds on the local
+network so one can be selected. That verdict describes the file, not a device, and
+it does not promise playback. Media serving, Cast communication and playback are
+not implemented yet; see ROADMAP.md for the phased plan and acceptance criteria.
 
 Requirements
 ------------
@@ -26,6 +26,9 @@ Requirements
 * Xcode 16 or later with the macOS SDK. The current project was created and
   verified with Xcode 27.2 and Swift 6.4.2.
 * No third-party dependencies.
+* Local network access, which macOS asks for the first time the app searches the
+  network. Device discovery needs it; without it the app says so instead of
+  returning an empty list.
 
 Build, run and test
 -------------------
@@ -66,9 +69,12 @@ Architecture
   `MediaCompatibilityEvaluator` judges those values against the target profile as a
   pure function, so the rules are testable without files.
 * `SecurityScopedFileAccess` holds and releases the access to the selected file.
-* `MediaImportModel` owns the import, access and metadata state. It contains no
-  presentation logic.
-* `MediaImportScreen` renders that state and forwards user actions. It contains no
+* `MediaImportModel` owns the import, access and metadata state. `DeviceDiscoveryModel`
+  owns the discovered devices and the selection. Neither contains presentation logic.
+* `CastDevice` describes a device found on the network; `BonjourCastDeviceBrowser`
+  finds `_googlecast._tcp` services and reports appearances, changes and disappearances.
+  Discovery never connects to a device.
+* `MainScreen` renders both models and forwards user actions. It contains no
   validation, extraction, networking or protocol code.
 
 Contribution workflow

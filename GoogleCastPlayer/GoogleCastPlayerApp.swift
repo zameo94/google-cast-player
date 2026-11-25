@@ -3,11 +3,12 @@ import SwiftUI
 @main
 struct GoogleCastPlayerApp: App {
     @State private var mediaImportModel = MediaImportModel()
+    @State private var deviceDiscoveryModel = DeviceDiscoveryModel()
 
     var body: some Scene {
         Window("Google Cast Player", id: "main") {
-            MediaImportScreen(model: mediaImportModel)
+            MainScreen(media: mediaImportModel, devices: deviceDiscoveryModel)
         }
-        .defaultSize(width: 640, height: 520)
+        .defaultSize(width: 700, height: 720)
     }
 }
