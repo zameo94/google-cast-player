@@ -23,7 +23,7 @@ final class CastClient {
     enum ClientError: Error, Equatable, LocalizedError {
         case notConnected
         case receiverLaunchTimedOut
-        case receiverRejected
+        case cannotDescribeMedia
 
         var errorDescription: String? {
             switch self {
@@ -31,8 +31,8 @@ final class CastClient {
                 return "The device is not connected."
             case .receiverLaunchTimedOut:
                 return "The device did not start the receiver in time."
-            case .receiverRejected:
-                return "The device refused to start the receiver."
+            case .cannotDescribeMedia:
+                return "The media request could not be built."
             }
         }
     }
@@ -223,6 +223,7 @@ final class CastClient {
         )
 
         let requestID = takeRequestID()
+        let payload = try Self.loadPayload(media: media, requestID: requestID)
         mediaSessionID = nil
         mediaStatus = nil
         onMediaStatus?(nil)
@@ -231,7 +232,7 @@ final class CastClient {
                 sourceID: Self.senderID,
                 destinationID: transportID,
                 namespace: Namespace.media,
-                payload: Self.loadPayload(media: media, requestID: requestID)
+                payload: payload
             )
         )
         return requestID
@@ -354,14 +355,22 @@ final class CastClient {
     /// The device answers with a receiver status carrying the volume it actually applied,
     /// which is what the interface shows.
     func setVolume(_ level: Double) async {
+        await sendVolumeChange(["level": min(max(level, 0), 1)])
+    }
+
+    /// Mutes or unmutes the device, keeping its level.
+    func setMuted(_ muted: Bool) async {
+        await sendVolumeChange(["muted": muted])
+    }
+
+    private func sendVolumeChange(_ volume: [String: Any]) async {
         guard isConnected else {
             return
         }
-        let clamped = min(max(level, 0), 1)
         let payload: [String: Any] = [
             "type": "SET_VOLUME",
             "requestId": takeRequestID(),
-            "volume": ["level": clamped],
+            "volume": volume,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
             return
@@ -594,7 +603,7 @@ final class CastClient {
         return nextRequestID
     }
 
-    private static func loadPayload(media: Media, requestID: Int) -> String {
+    private static func loadPayload(media: Media, requestID: Int) throws -> String {
         var mediaObject: [String: Any] = [
             "contentId": media.contentURL.absoluteString,
             "streamType": media.streamType,
@@ -611,7 +620,7 @@ final class CastClient {
             "currentTime": media.currentTime,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
-            return "{}"
+            throw ClientError.cannotDescribeMedia
         }
         return String(decoding: data, as: UTF8.self)
     }

@@ -22,6 +22,8 @@ protocol CastSessionControlling: AnyObject {
     var onVolumeChange: ((CastClient.Volume?) -> Void)? { get set }
     /// Sets the device volume, from 0 to 1.
     func setVolume(_ level: Double) async
+    /// Mutes or unmutes the device.
+    func setMuted(_ muted: Bool) async
     /// Asks the running receiver to load `media`.
     func loadMedia(_ media: CastClient.Media, transportID: String) async throws
     /// Resumes the paused media.
@@ -270,6 +272,14 @@ final class CastConnectionModel {
             return
         }
         await session.setVolume(level)
+    }
+
+    /// Mutes or unmutes the device, keeping the level the device reports.
+    func setMuted(_ muted: Bool) async {
+        guard state == .connected, let session else {
+            return
+        }
+        await session.setMuted(muted)
     }
 
     /// Stops the playing media and keeps the session open.

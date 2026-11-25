@@ -76,9 +76,16 @@ struct PlaybackControls: View {
     /// not fight the gesture.
     private var volumeRow: some View {
         HStack(spacing: 8) {
-            Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+            Button {
+                Task { await toggleMute() }
+            } label: {
+                Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .foregroundStyle(isMuted ? Color.orange : Color.secondary)
+                    .frame(width: 18)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(isMuted ? "Unmute device" : "Mute device")
+            .help(isMuted ? "Unmute the device" : "Mute the device")
 
             Slider(value: volumeBinding, in: 0...1) { isEditing in
                 if !isEditing {
@@ -96,6 +103,10 @@ struct PlaybackControls: View {
 
     private var isMuted: Bool {
         connection.volume?.muted ?? false
+    }
+
+    private func toggleMute() async {
+        await connection.setMuted(!isMuted)
     }
 
     private var volumeBinding: Binding<Double> {

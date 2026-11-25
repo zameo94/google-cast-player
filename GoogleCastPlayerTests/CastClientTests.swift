@@ -2,6 +2,29 @@ import Foundation
 import Testing
 @testable import GoogleCastPlayer
 
+/// Signal a callback can fulfill once and a test can await, without polling.
+@MainActor
+final class Signal {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isFulfilled = false
+
+    func fulfill() {
+        guard !isFulfilled else {
+            return
+        }
+        isFulfilled = true
+        continuation?.resume()
+        continuation = nil
+    }
+
+    func wait() async {
+        guard !isFulfilled else {
+            return
+        }
+        await withCheckedContinuation { continuation = $0 }
+    }
+}
+
 /// Sleeper that returns at once, so a timeout fires without waiting on wall time.
 struct ImmediateSleeper: Sleeping {
     func sleep(for duration: Duration) async {}
@@ -454,6 +477,33 @@ struct CastClientTests {
         #expect(levels == [1, 0])
     }
 
+    @Test func sendsTheMuteState() async throws {
+        let (client, transport) = try await connectClient()
+        defer { client.disconnect() }
+
+        await client.setMuted(true)
+
+        let message = try #require(transport.sentMessages.last)
+        #expect(message.namespace == CastClient.Namespace.receiver)
+        let payload = try #require(
+            try JSONSerialization.jsonObject(with: Data(message.payload.utf8)) as? [String: Any]
+        )
+        #expect(payload["type"] as? String == "SET_VOLUME")
+        #expect(payload["requestId"] as? Int != nil)
+        let volume = try #require(payload["volume"] as? [String: Any])
+        #expect(volume["muted"] as? Bool == true)
+        #expect(volume["level"] == nil)
+    }
+
+    @Test func refusesTheMuteStateWithoutAConnection() async {
+        let transport = ScriptedCastTransport()
+        let client = CastClient(transport: transport)
+
+        await client.setMuted(true)
+
+        #expect(transport.sentMessages.isEmpty)
+    }
+
     @Test func refusesTheVolumeWithoutAConnection() async {
         let client = CastClient(transport: ScriptedCastTransport())
 
@@ -563,13 +613,12 @@ struct CastClientTests {
 
     @Test func reportsATransportThatEnds() async throws {
         let (client, transport) = try await connectClient(heartbeat: .seconds(30))
-        var didEnd = false
-        client.onConnectionEnded = { didEnd = true }
+        let ended = Signal()
+        client.onConnectionEnded = { ended.fulfill() }
 
         transport.close()
 
-        await waitForCallback { didEnd }
-        #expect(didEnd)
+        await ended.wait()
     }
 
     @Test func reportsADeviceThatStoppedAnswering() async throws {
@@ -581,11 +630,10 @@ struct CastClientTests {
         )
         try await client.connect()
         defer { client.disconnect() }
-        var didEnd = false
-        client.onConnectionEnded = { didEnd = true }
+        let ended = Signal()
+        client.onConnectionEnded = { ended.fulfill() }
 
-        await waitForCallback { didEnd }
-        #expect(didEnd)
+        await ended.wait()
     }
 
     @Test func keepsTheSessionWhileTheDeviceAnswers() async throws {
@@ -611,13 +659,5 @@ struct CastClientTests {
         await transport.waitForSentFrames(4)
 
         #expect(!didEnd)
-    }
-
-    /// Lets the main actor run the client's background work until `condition` holds,
-    /// without waiting on wall-clock time.
-    private func waitForCallback(_ condition: @MainActor () -> Bool) async {
-        for _ in 0..<1000 where !condition() {
-            await Task.yield()
-        }
     }
 }

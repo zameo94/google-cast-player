@@ -21,9 +21,9 @@ HTTP server for that file and hands the URL to the device, so the receiver fetch
 media directly from the Mac.
 
 Play, pause and seek, together with the state the device reports, were confirmed on a
-Google TV and are covered by tests. The window also carries a volume slider for the
-device itself: the level shown is the one the receiver reports, and the command is sent
-when the slider is released. Stopping the cast closes the server. See ROADMAP.md for the
+Google TV and are covered by tests. The window also carries volume controls for the
+device itself: the level and the mute state shown are the ones the receiver reports, the
+level is sent when the slider is released, and the speaker button toggles mute. Stopping the cast closes the server. See ROADMAP.md for the
 phased plan and acceptance criteria.
 
 Requirements
