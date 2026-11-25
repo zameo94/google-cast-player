@@ -4,9 +4,9 @@ Google Cast Player — Development
 Overall status: Phase 0 to Phase 7 on main and verified on a physical device; the Phase 8 release candidate is integrated into dev, with the release decision pending.
 Current development phase: Phase 8 — Stabilization and MVP Release (release candidate 1.0.0 integrated into dev; release approval pending).
 Current milestone: The release decision: signing, notarization and version tagging.
-Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev.
-Current working branch: dev, used only to integrate completed feature branches; feature work happens on feature/<name> branches.
-Last verified commit: main is be69da3; feature commits are listed in section 7.
+Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev; feature/sleep-and-reconnect (Phase 8), created from main at 565f112 and not yet integrated.
+Current working branch: feature/sleep-and-reconnect; dev is used only to integrate completed feature branches.
+Last verified commit: main is 565f112; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
 Last verified test run: 170 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
 Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
@@ -227,6 +227,9 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-25 | feature/release-stabilization | Receiver-stop handling, accessibility labels, release documentation and version 1.0.0 | 148 tests passed in Debug, Release build succeeded | this commit |
 | 2026-11-25 | dev | Integrated the release candidate; the user confirmed the full cast flow and the playback controls on a Google TV | Build and tests re-run on dev after the merge | this merge |
 | 2026-11-25 | dev | Integrated the Phase 3 branch | Build and tests re-run on dev after the merge | see section 6 |
+| 2026-11-25 | feature/sleep-and-reconnect | Lost connections are reported, the session keeps the position and a reconnect opens a new session | 170 tests passed in Debug; gga rejected a polling test helper and a swallowed send error, both fixed | e3dfabb |
+| 2026-11-25 | feature/sleep-and-reconnect | Cast power assertion, interrupted cast state, wake watcher and automatic resume at the last position | 170 tests passed in Debug, Release build succeeded; gga passed | d087878 |
+| 2026-11-25 | feature/sleep-and-reconnect | Transport stores its connection before `connect()` returns | 170 tests passed in Debug; gga passed | 88fcdc6 |
 
 8. Blockers and Risks
 No active blocker.
@@ -241,7 +244,8 @@ Risks and pending verification:
 * Casting again without stopping first stops the previous server, so an older session loses its media source; the window offers Stop for that, and broadcasting a replacement session belongs to the playback work.
 * The media server speaks plain HTTP with no authentication beyond the unguessable per-session path. It is meant for a trusted local network and only while a session needs it; the server is not exposed outside the LAN by the app.
 * The server runs only while a cast is active: `PlaybackModel` starts it for the selected file and stops it when the cast ends, and its behaviour is covered by tests.
-* The interactive checklist was exercised by the user on a Google TV; items 5 (unreadable container) and 9 (device turned off while connected) were not exercised.
+* The interactive checklist was exercised by the user on a Google TV; items 5 (unreadable container), 9 (device turned off while connected), 10 (screen lock and display sleep) and 11 (lid close and wake recovery) were not exercised.
+* The cast power assertion and the wake recovery are covered by unit tests only. Whether macOS honours the assertion on this Mac, and how the device behaves while the Mac sleeps, can only be verified with items 10 and 11 of section 6 on the maintainer's machine.
 * The position shown between status updates is interpolated locally, so it can drift by a second until the next status arrives; seeking is sent only when the slider is released.
 * The compatibility verdict describes the container and codecs only. Real playback on a receiver is unverified, so the interface never labels a file as playable, only as matching or not matching the format profile.
 * Interactive and visual checks are manual: the shell has neither screen recording nor accessibility permission, and there is no UI test target. Section 6 records which checks the user exercised and which are still pending.
