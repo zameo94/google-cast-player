@@ -1,16 +1,16 @@
 Google Cast Player — Development
 
 1. Current State
-Overall status: Phase 0 and Phase 1 verified and integrated into dev; promotion to main is pending.
-Current development phase: Phase 1 — Native Application Foundation and Media Import (acceptance criteria verified; integrated into dev, not yet promoted to main).
-Current milestone: Promotion of dev to main and Phase 2 preparation.
-Current feature branches: feature/repository-foundation (Phase 0) and feature/app-foundation-media-import (Phase 1). Both branch from main at 0f14ad9 and are merged into dev.
-Current working branch: dev.
-Last verified commit: dev contains both feature branches; the commits are listed in section 7.
+Overall status: Phase 0, Phase 1 and Phase 2 verified; Phase 2 is integrated on its feature branch and awaits integration into dev.
+Current development phase: Phase 2 — Media Access, Metadata and Compatibility (acceptance criteria verified on feature/media-metadata-compatibility).
+Current milestone: Phase 2 integration and Phase 3 preparation.
+Current feature branches: feature/media-metadata-compatibility (Phase 2), created from main at 5877d89.
+Current working branch: feature/media-metadata-compatibility.
+Last verified commit: main is 5877d89; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
-Last verified test run: 18 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
+Last verified test run: 48 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
 Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
-Last remote synchronization: main matches origin/main at 0f14ad9. dev is ahead of origin/dev with the integrated Phase 0 and Phase 1 work; nothing has been pushed.
+Last remote synchronization: main matches origin/main at 5877d89. The Phase 2 branch has not been pushed.
 
 2. Verified Environment
 Verified on the development machine before this status was written:
@@ -47,9 +47,19 @@ Phase 1 — native macOS application foundation and media import:
 * Verified Debug build, clean compiler warnings and passing test run (see section 6).
 * Repository documentation (README.md) and a GitHub Actions workflow for build and tests.
 
+Phase 2 — media access, metadata and compatibility:
+
+* `MediaMetadata`, `VideoCodec` and `AudioCodec` describe duration, resolution and codecs as plain values, independent of SwiftUI.
+* `MediaMetadataExtractor` reads what the container reports through AVFoundation, without decoding or preparing playback; unreadable files produce an error instead of invented data.
+* `MediaCompatibilityEvaluator` is a pure function over metadata and format: it accepts MP4/M4V with H.264 and AAC, reports MOV and undeterminable properties as uncertain, and rejects other containers or codecs with an explanation.
+* `SecurityScopedFileAccess` acquires and releases the security scope of the selected file; `MediaImportModel` holds access while a file is selected and releases it on replacement or removal.
+* The main window shows duration, resolution, codecs, a format verdict with its reasons, a loading state and a metadata error state.
+* 30 additional unit tests (48 in total) covering codec mapping, the compatibility rules, extraction from a real H.264 fixture, access lifetime and metadata states, including a selection replaced while metadata is loading.
+* Verified Debug build, clean compiler warnings and passing test run (see section 6).
+
 4. In Progress
-* Promotion of dev to main: both phases are integrated into dev and require explicit user approval to reach main.
-* Phase 2 (media access, metadata and compatibility) has not started and must wait for the promotion of dev to main.
+* Integration of feature/media-metadata-compatibility into dev.
+* Phase 3 (Cast device discovery) has not started and waits for the Phase 2 integration.
 
 5. Quality Gate and Tooling Decisions
 * The review gate is enforced by a Git pre-commit hook installed with scripts/install-git-hooks.sh; the hook refuses to run when gga or the local .gga configuration is missing instead of skipping the review.
@@ -73,17 +83,20 @@ Test:
 Verified on 2026-11-25 with Xcode 27.2:
 
 * Clean Debug build succeeded with no compiler warnings.
-* Test run succeeded: 18 tests in 3 suites.
+* Test run succeeded: 48 tests in 6 suites.
 * The built application launches, keeps running and quits cleanly.
-* An offscreen render of the screen confirmed the layout of the empty, selected and error states. Visual appearance and interactive drag-and-drop were not inspected automatically: macOS denied screen recording and accessibility access to the shell, so they remain manual checks.
+* An offscreen render of the screen confirmed the layout of the empty, loading, compatible, unsupported and metadata-error states. Visual appearance and interactive drag-and-drop were not inspected automatically: macOS denied screen recording and accessibility access to the shell, so they remain manual checks.
 
 Manual checks (require a graphical session and cannot be automated on this machine):
 
 1. Launch the application and confirm the empty state appears in the main window.
-2. Drag an MP4 file onto the drop area; the card must show its name, "MP4" and its size.
+2. Drag an MP4 file onto the drop area; the card must show its name, "MP4", its size, duration, resolution, codecs and the format verdict.
 3. Use "Choose Different Video…" (or Command-O) to replace the selection.
 4. Drop a non-video file, for example a `.txt`; the error banner must explain the problem and the previous selection must stay.
-5. Click "Remove" to return to the empty state.
+5. Drop a file the container cannot open while it is being described; the card must show the metadata error instead of invented values.
+6. Click "Remove" to return to the empty state.
+
+Note: the verdict describes the container and codecs only. Actual playback on a receiver is not verified and is not promised by the label.
 
 Continuous integration: .github/workflows/ci.yml builds and tests the project on a macOS runner for pull requests and for pushes to main and dev. The workflow file parses as valid YAML, but it has not been executed on GitHub because no branch has been pushed.
 
@@ -101,25 +114,29 @@ Continuous integration: .github/workflows/ci.yml builds and tests the project on
 | 2026-11-25 | feature/app-foundation-media-import | README, CI workflow and this status update | Documented | 03fc185 |
 | 2026-11-25 | feature/app-foundation-media-import | Manual verification checklist for the import flow | Documented | aa0a859 |
 | 2026-11-25 | dev | Integrated both feature branches | Build and tests re-run on dev after the merge | see section 6 |
+| 2026-11-25 | main | Pull request #2 merged dev into main | Build and tests verified on dev before the merge | 5877d89 |
+| 2026-11-25 | feature/media-metadata-compatibility | Metadata extraction, codec mapping and compatibility rules with 30 new tests | 48 tests passed; gga reviewed the staged Swift files | ff89ebb |
+| 2026-11-25 | feature/media-metadata-compatibility | Access lifetime, metadata states and presentation | 48 tests passed; gga rejected the first "Compatible" label as an unverified guarantee and passed the corrected one | b194f7f |
 
 8. Blockers and Risks
 No active blocker.
 
 Risks and pending verification:
 
-* Phase 0 and Phase 1 are integrated into dev. ROADMAP.md states that a phase is complete once its acceptance criteria are verified and the work has reached main, so both phases stay open until the promotion is authorized.
+* Phase 0 and Phase 1 reached main through pull request #2. Phase 2 is verified on its feature branch and needs integration into dev and promotion to main before ROADMAP.md allows it to be marked complete.
 * Continuous integration has not run on GitHub yet; it can only be verified after the first push.
 * Chromecast discovery, connectivity and playback have never been exercised; the corresponding phases are not started.
+* The compatibility verdict describes the container and codecs only. Real playback on a receiver is unverified, so the interface never labels a file as playable, only as matching or not matching the format profile.
 * Visual appearance and interactive drag-and-drop in the running application are manual checks: the shell has neither screen recording nor accessibility permission, and no UI test target exists yet.
 * Repository branch protection and required status checks cannot be configured from this environment and must be verified on GitHub by the user.
 * The review gate depends on the locally configured AI provider. A review that misjudges valid code blocks the commit until it is rerun; build and test results remain the authoritative verification.
 
 9. Next Objective
-Push the integrated work and promote it, then prepare Phase 2:
-1. Push dev and verify that the GitHub Actions workflow runs successfully on it (pushing requires explicit user approval).
-2. Verify branch protection and required status checks on GitHub.
-3. Authorize the promotion of dev to main so Phase 0 and Phase 1 can be marked complete.
-4. Only then start Phase 2 — media access, metadata and compatibility — following ROADMAP.md.
+Integrate Phase 2 and prepare Phase 3:
+1. Integrate feature/media-metadata-compatibility into dev (requires explicit user approval).
+2. Re-run build and tests on dev, then push dev and verify the GitHub Actions run (pushing requires explicit user approval).
+3. Authorize the promotion of dev to main so Phase 2 can be marked complete.
+4. Only then start Phase 3 — Cast device discovery — following ROADMAP.md.
 
 Do not start device discovery, media serving, Cast communication or playback before their planned phases.
 
