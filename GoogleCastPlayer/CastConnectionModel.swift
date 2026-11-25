@@ -13,6 +13,8 @@ protocol CastSessionControlling: AnyObject {
     func start() async throws -> String
     /// Media status the receiver reports, when the session calls back.
     var onMediaStatusChange: ((CastClient.MediaStatus?) -> Void)? { get set }
+    /// Called when the device reports that its receiver stopped.
+    var onReceiverStopped: (() -> Void)? { get set }
     /// Asks the running receiver to load `media`.
     func loadMedia(_ media: CastClient.Media, transportID: String) async throws
     /// Resumes the paused media.
@@ -150,6 +152,9 @@ final class CastConnectionModel {
             self?.mediaStatus = status
             self?.mediaStatusReceivedAt = status == nil ? nil : Date()
         }
+        session.onReceiverStopped = { [weak self] in
+            self?.receiverStopped()
+        }
         self.session = session
 
         do {
@@ -223,6 +228,16 @@ final class CastConnectionModel {
         mediaStatus = nil
         mediaStatusReceivedAt = nil
         state = .idle
+    }
+
+    private func receiverStopped() {
+        guard state == .connected else {
+            return
+        }
+        receiverTransportID = nil
+        mediaStatus = nil
+        mediaStatusReceivedAt = nil
+        state = .failed("The device stopped the receiver. Connect again to continue.")
     }
 
     private func stopSession() async {

@@ -382,6 +382,34 @@ struct CastClientTests {
         #expect(!transport.isClosed)
     }
 
+    @Test func reportsWhenTheReceiverStops() async throws {
+        let (client, transport) = try await connectClient()
+        var stopped = false
+        client.onReceiverStopped = { stopped = true }
+        let launch = Task { try await client.launchDefaultReceiver() }
+        await transport.waitForSentFrames(2)
+        transport.push(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.receiver,
+                payload: #"{"type":"RECEIVER_STATUS","status":{"applications":[{"appId":"CC1AD845","transportId":"web-5"}]}}"#
+            )
+        )
+        _ = try await launch.value
+
+        client.handle(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.receiver,
+                payload: #"{"type":"RECEIVER_STATUS","status":{}}"#
+            ).framed()
+        )
+
+        #expect(stopped)
+    }
+
     @Test func answersHeartbeatPings() async throws {
         let (client, transport) = try await connectClient()
         defer { client.disconnect() }
