@@ -1,5 +1,16 @@
 import Foundation
 
+/// Waits for a duration; injected so timeouts can be tested without wall-clock waits.
+protocol Sleeping: Sendable {
+    func sleep(for duration: Duration) async
+}
+
+struct TaskSleeper: Sleeping {
+    func sleep(for duration: Duration) async {
+        try? await Task.sleep(for: duration)
+    }
+}
+
 /// Drives the Cast V2 handshake over a transport.
 ///
 /// The client speaks the parts of the protocol the app needs: the connection namespace,
@@ -82,6 +93,7 @@ final class CastClient {
     private let transport: any CastTransporting
     private let launchTimeout: Duration
     private let heartbeatInterval: Duration
+    private let sleeper: any Sleeping
 
     private var receiveTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
@@ -101,11 +113,13 @@ final class CastClient {
     init(
         transport: any CastTransporting,
         launchTimeout: Duration = .seconds(10),
-        heartbeatInterval: Duration = .seconds(5)
+        heartbeatInterval: Duration = .seconds(5),
+        sleeper: any Sleeping = TaskSleeper()
     ) {
         self.transport = transport
         self.launchTimeout = launchTimeout
         self.heartbeatInterval = heartbeatInterval
+        self.sleeper = sleeper
     }
 
     /// Opens the transport and announces the sender to the receiver.
@@ -367,12 +381,13 @@ final class CastClient {
         let rawState = status["playerState"] as? String
         let playerState = rawState.flatMap(MediaStatus.PlayerState.init(rawValue:)) ?? .unknown
         let media = status["media"] as? [String: Any]
+        // Some updates omit the media block or the position; the last known value stands.
         let parsed = MediaStatus(
             mediaSessionID: mediaSessionID,
             playerState: playerState,
-            position: status["currentTime"] as? TimeInterval,
-            duration: media?["duration"] as? TimeInterval,
-            idleReason: status["idleReason"] as? String
+            position: (status["currentTime"] as? TimeInterval) ?? mediaStatus?.position,
+            duration: (media?["duration"] as? TimeInterval) ?? mediaStatus?.duration,
+            idleReason: (status["idleReason"] as? String) ?? mediaStatus?.idleReason
         )
         mediaStatus = parsed
         // An idle media cannot be controlled any more, but its status stays visible.
@@ -417,9 +432,10 @@ final class CastClient {
 
     private func scheduleLaunchTimeout() {
         let timeout = launchTimeout
+        let sleeper = sleeper
         launchTimeoutTask?.cancel()
         launchTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: timeout)
+            await sleeper.sleep(for: timeout)
             guard let self, !Task.isCancelled else {
                 return
             }
