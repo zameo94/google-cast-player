@@ -165,6 +165,38 @@ struct CastConnectionModelTests {
         #expect(connection.mediaStatusReceivedAt != nil)
     }
 
+    @Test func mapsTheReportedStatusToAPlaybackSnapshot() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+
+        session.onMediaStatusChange?(
+            CastClient.MediaStatus(mediaSessionID: 7, playerState: .playing, position: 30, duration: 90, idleReason: nil)
+        )
+
+        let snapshot = connection.playbackSnapshot
+        #expect(snapshot?.status == .playing)
+        #expect(snapshot?.position == 30)
+        #expect(snapshot?.duration == 90)
+        #expect(snapshot?.receivedAt != nil)
+    }
+
+    @Test func mapsAnIdleErrorToFailureAndAnIdleStopToFinished() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+
+        session.onMediaStatusChange?(
+            CastClient.MediaStatus(mediaSessionID: 7, playerState: .idle, position: nil, duration: 90, idleReason: "ERROR")
+        )
+        #expect(connection.playbackSnapshot?.status == .failed)
+
+        session.onMediaStatusChange?(
+            CastClient.MediaStatus(mediaSessionID: 7, playerState: .idle, position: nil, duration: 90, idleReason: "CANCELLED")
+        )
+        #expect(connection.playbackSnapshot?.status == .finished)
+    }
+
     @Test func clearsTheMediaStatusWhenDisconnecting() async {
         let session = FakeCastSession()
         let connection = model(session: session)

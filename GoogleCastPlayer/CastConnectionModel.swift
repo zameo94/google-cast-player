@@ -92,6 +92,26 @@ final class CastConnectionModel {
     /// When `mediaStatus` was received, used to advance the displayed position.
     private(set) var mediaStatusReceivedAt: Date?
 
+    /// Playback state for the interface, in app types.
+    var playbackSnapshot: PlaybackSnapshot? {
+        guard let mediaStatus else {
+            return nil
+        }
+        let status: PlaybackSnapshot.Status = switch mediaStatus.playerState {
+        case .playing: .playing
+        case .paused: .paused
+        case .buffering: .buffering
+        case .idle: mediaStatus.idleReason == "ERROR" ? .failed : .finished
+        case .unknown: .unknown
+        }
+        return PlaybackSnapshot(
+            status: status,
+            position: mediaStatus.position,
+            duration: mediaStatus.duration,
+            receivedAt: mediaStatusReceivedAt
+        )
+    }
+
     private let makeSession: (NWEndpoint) -> any CastSessionControlling
     private var session: (any CastSessionControlling)?
     private var attempt = 0

@@ -19,6 +19,26 @@ extension LocalMediaServer: MediaServing {
     }
 }
 
+/// Playback state as the interface needs it, independent of the Cast protocol.
+struct PlaybackSnapshot: Equatable, Sendable {
+    enum Status: Equatable, Sendable {
+        case playing
+        case paused
+        case buffering
+        case finished
+        case failed
+        case unknown
+    }
+
+    let status: Status
+    /// Position the device reported, in seconds.
+    let position: TimeInterval?
+    /// Duration of the media, in seconds.
+    let duration: TimeInterval?
+    /// When this snapshot was received, so the interface can advance the position.
+    let receivedAt: Date?
+}
+
 /// A connected Cast session that can receive media.
 @MainActor
 protocol CastMediaLoading: AnyObject {
@@ -49,6 +69,14 @@ final class PlaybackModel {
     }
 
     private(set) var state: State = .idle
+
+    /// URL the receiver was asked to load, while a cast is active.
+    var castingURL: URL? {
+        guard case let .casting(url) = state else {
+            return nil
+        }
+        return url
+    }
 
     private let server: any MediaServing
 
