@@ -56,6 +56,9 @@ struct MainScreen: View {
                 playback.stop()
             case let .failed(message):
                 playback.interrupt(reason: message)
+                if connection.isConnectionLost {
+                    Task { await playback.recoverCast() }
+                }
             case .connected, .connecting:
                 break
             }

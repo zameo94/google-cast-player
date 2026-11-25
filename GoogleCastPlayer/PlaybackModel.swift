@@ -1,4 +1,5 @@
 import Foundation
+import os
 import UniformTypeIdentifiers
 
 /// Serves one selected file over the local network for a casting session.
@@ -50,11 +51,6 @@ protocol CastMediaLoading: AnyObject {
     func reconnect() async
     /// Position, in seconds, the cast reached, so a resumed cast continues where it stopped.
     var resumePosition: TimeInterval? { get }
-}
-
-extension CastMediaLoading {
-    func reconnect() async {}
-    var resumePosition: TimeInterval? { nil }
 }
 
 /// Drives one casting session: serve the file locally, then ask the device to play it.
@@ -129,7 +125,6 @@ final class PlaybackModel {
         }
         sleepWatcher.start()
     }
-
     /// Serves `file` locally and asks the device to play it.
     ///
     /// - Parameter startAt: Position, in seconds, the receiver starts from.
@@ -139,6 +134,7 @@ final class PlaybackModel {
         startAt position: TimeInterval = 0
     ) async {
         guard connection.isConnected else {
+            CastLog.playback.error("Play refused: the session is not connected")
             state = .failed("Connect to a device before casting.")
             return
         }
@@ -148,6 +144,9 @@ final class PlaybackModel {
         self.file = file
         self.connection = connection
         power.begin()
+        CastLog.playback.info(
+            "Play requested: \(file.name, privacy: .public) from \(position, privacy: .public)s"
+        )
 
         do {
             let url = try await server.startServing(file)
@@ -159,30 +158,38 @@ final class PlaybackModel {
             )
             try await connection.load(media)
             state = .casting(url: url)
+            CastLog.playback.info("Cast started on port \(url.port ?? 0, privacy: .public)")
         } catch {
             release()
             state = .failed(Self.message(for: error))
+            CastLog.playback.error("Cast failed: \(Self.message(for: error), privacy: .public)")
         }
     }
 
     /// Stops serving the file and forgets the cast.
     func stop() {
+        if case .casting = state {
+            CastLog.playback.info("Cast stopped on request")
+        }
         release()
         file = nil
         connection = nil
         state = .idle
     }
 
-    /// Marks the cast as stopped because the connection was lost, keeping it resumable.
+    /// Marks the cast as stopped because the session was lost, keeping it resumable.
     ///
     /// Only a running cast is interrupted: a connection that fails before or after one is
-    /// the connection model's own state, not a playback state.
+    /// the connection model's own state, not a playback state. The wake assertion stays
+    /// held on purpose: the Mac must not go to sleep before the recovery had a chance to
+    /// run, which is exactly what used to turn a short loss into a dead session.
     func interrupt(reason: String) {
         guard case .casting = state else {
             return
         }
-        release()
+        server.stopServing()
         state = .interrupted(reason: reason)
+        CastLog.playback.error("Cast interrupted: \(reason, privacy: .public)")
     }
 
     /// Reconnects to the device and reloads the file where the cast stopped.
@@ -194,14 +201,17 @@ final class PlaybackModel {
         }
         let position = connection.resumePosition
         state = .starting
+        CastLog.playback.info("Resuming at \(position ?? 0, privacy: .public)s")
 
         await connection.reconnect()
         guard case .starting = state else {
             // The user stopped the cast while the session was reconnecting.
+            CastLog.playback.info("Resume abandoned: the cast was stopped")
             return
         }
         guard connection.isConnected else {
             state = .interrupted(reason: Self.cannotReconnectMessage(from: reason))
+            CastLog.playback.error("Resume failed: the device did not answer")
             return
         }
         await play(file: file, connection: connection, startAt: position ?? 0)
@@ -222,26 +232,47 @@ final class PlaybackModel {
         return type
     }
 
-    // MARK: - Wake
+    // MARK: - Recovery
 
     /// Resumes the interrupted cast after a wake, retrying while the network comes back.
-    ///
-    /// Internal so the recovery can be exercised without a real sleep.
     func handleWake() async {
+        CastLog.playback.info("Mac woke")
+        await recoverCast()
+    }
+
+    /// Reconnects an interrupted cast, retrying while the network comes back.
+    ///
+    /// The wake assertion is taken again before the attempts, so the Mac stays awake while
+    /// the session is re-established, and it is released only when recovery gives up.
+    func recoverCast() async {
         guard case .interrupted = state else {
             return
         }
-        await resume()
+        power.begin()
 
         var attempt = 1
-        while case .interrupted = state, attempt < Self.wakeResumeAttempts {
-            await sleeper.sleep(for: Self.wakeResumeDelay)
+        while true {
+            if attempt > 1 {
+                await sleeper.sleep(for: Self.retryDelay)
+            }
+            guard case .interrupted = state else {
+                // The user stopped the cast or a wake recovered it first.
+                return
+            }
+            await resume()
             guard case .interrupted = state else {
                 return
             }
+            guard attempt < Self.recoveryAttempts else {
+                break
+            }
             attempt += 1
-            await resume()
         }
+
+        power.end()
+        CastLog.playback.error(
+            "Recovery gave up after \(Self.recoveryAttempts, privacy: .public) attempts"
+        )
     }
 
     // MARK: - Helpers
@@ -255,8 +286,8 @@ final class PlaybackModel {
         "The device did not answer after the connection was lost. Resume again, or connect again. \(reason)"
     }
 
-    private static let wakeResumeAttempts = 3
-    private static let wakeResumeDelay = Duration.seconds(2)
+    private static let recoveryAttempts = 3
+    private static let retryDelay = Duration.seconds(2)
 
     private static func message(for error: Error) -> String {
         if let localized = error as? LocalizedError, let description = localized.errorDescription {

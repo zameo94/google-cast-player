@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Network
 
 /// A Cast session that can be started and stopped, as the connection state needs it.
@@ -89,7 +90,7 @@ final class CastConnectionModel {
     private(set) var state: State = .idle
     /// Device the current state refers to.
     private(set) var connectedDevice: CastDevice?
-    /// Receiver transport id, kept for the media load of the next phase.
+    /// Receiver transport id the load and playback commands are addressed to.
     private(set) var receiverTransportID: String?
     /// Last media status the receiver reported.
     private(set) var mediaStatus: CastClient.MediaStatus?
@@ -289,6 +290,9 @@ final class CastConnectionModel {
         mediaStatus = nil
         mediaStatusReceivedAt = nil
         state = .failed("The device stopped the receiver. Connect again to continue.")
+        CastLog.connection.error(
+            "Receiver stopped by the device at \(self.resumePosition ?? 0, privacy: .public)s"
+        )
     }
 
     /// Reports a transport that died, for example because the Mac slept, and keeps the
@@ -302,10 +306,19 @@ final class CastConnectionModel {
         mediaStatus = nil
         mediaStatusReceivedAt = nil
         state = .failed(Self.connectionLostMessage)
+        CastLog.connection.error(
+            "Connection lost; resume position \(self.resumePosition ?? 0, privacy: .public)s"
+        )
     }
 
     static let connectionLostMessage =
         "The connection to the device was lost. Connect again to continue."
+
+    /// Whether the session ended because its transport died, which is recoverable
+    /// without the user doing anything.
+    var isConnectionLost: Bool {
+        state == .failed(Self.connectionLostMessage)
+    }
 
     private func stopSession() async {
         if let session {

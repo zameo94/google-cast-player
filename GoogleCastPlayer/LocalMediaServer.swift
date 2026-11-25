@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Network
 import UniformTypeIdentifiers
 
@@ -36,7 +37,10 @@ final class LocalMediaServer: @unchecked Sendable {
     }
 
     private static let maximumRequestBytes = 16 * 1024
-    private static let maximumConnections = 8
+    /// Generous next to the parallel range requests a receiver opens; a request that
+    /// finds every slot taken is refused, so the limit must never be the thing that
+    /// starves a playing receiver.
+    private static let maximumConnections = 16
     private static let chunkSize = 64 * 1024
 
     private let queue = DispatchQueue(label: "io.github.zameo94.GoogleCastPlayer.media-server")
@@ -97,6 +101,7 @@ final class LocalMediaServer: @unchecked Sendable {
                         self.fileURL = file.url
                         self.token = newToken
                         self.contentType = newContentType
+                        CastLog.server.info("Media server listening on port \(port, privacy: .public)")
                         guard let url = Self.makeURL(host: resolvedHost, port: port, token: newToken) else {
                             self.stopLocked()
                             continuation.resume(throwing: ServerError.cannotStart("invalid endpoint"))
@@ -130,6 +135,11 @@ final class LocalMediaServer: @unchecked Sendable {
     // MARK: - Connections
 
     private func stopLocked() {
+        if listener != nil {
+            CastLog.server.info(
+                "Media server stopped with \(self.connections.count, privacy: .public) open connections"
+            )
+        }
         listener?.cancel()
         listener = nil
         for connection in connections.values {
@@ -142,6 +152,9 @@ final class LocalMediaServer: @unchecked Sendable {
 
     private func accept(_ connection: NWConnection) {
         guard fileURL != nil, connections.count < Self.maximumConnections else {
+            CastLog.server.error(
+                "Refused a connection with \(self.connections.count, privacy: .public) open"
+            )
             connection.cancel()
             return
         }

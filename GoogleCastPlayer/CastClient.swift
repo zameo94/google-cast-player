@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Waits for a duration; injected so timeouts can be tested without wall-clock waits.
 protocol Sleeping: Sendable {
@@ -14,8 +15,9 @@ struct TaskSleeper: Sleeping {
 /// Drives the Cast V2 handshake over a transport.
 ///
 /// The client speaks the parts of the protocol the app needs: the connection namespace,
-/// the heartbeat, launching the default media receiver, and sending a load command. It
-/// does not manage playback state; that belongs to the playback phase.
+/// the heartbeat, launching the default media receiver, the load command and the
+/// playback commands, and it reads the media status the receiver pushes. It does not
+/// decide what the interface shows; the connection model maps that status to app types.
 @MainActor
 final class CastClient {
     enum ClientError: Error, Equatable, LocalizedError {
@@ -267,6 +269,9 @@ final class CastClient {
         } catch {
             // A command that cannot leave the Mac means the session is gone; reporting it
             // is better than showing a state the device never received.
+            CastLog.client.error(
+                "\(type, privacy: .public) could not be sent: \(error.localizedDescription, privacy: .public)"
+            )
             connectionEnded()
         }
     }
@@ -441,6 +446,7 @@ final class CastClient {
                 }
                 self.handle(chunk)
             }
+            CastLog.client.error("The transport stopped delivering data")
             self?.connectionEnded()
         }
     }
@@ -461,6 +467,7 @@ final class CastClient {
                 // A device that stopped answering, for example because the Mac slept,
                 // leaves a socket that looks open; silence is the only signal left.
                 if let lastInboundAt = self.lastInboundAt, self.clock.now - lastInboundAt > timeout {
+                    CastLog.client.error("Device silent for longer than the heartbeat timeout")
                     self.connectionEnded()
                     return
                 }
@@ -474,6 +481,7 @@ final class CastClient {
                         )
                     )
                 } catch {
+                    CastLog.client.error("Heartbeat send failed: \(error.localizedDescription, privacy: .public)")
                     self.connectionEnded()
                     return
                 }
@@ -501,6 +509,7 @@ final class CastClient {
         isConnected = false
         finishLaunch(.failure(ClientError.notConnected))
         transport.close()
+        CastLog.client.error("Session closed after the connection ended")
         onConnectionEnded?()
     }
 

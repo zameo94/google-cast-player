@@ -8,7 +8,7 @@ Current feature branches: feature/release-stabilization (Phase 8), created from 
 Current working branch: feature/sleep-and-reconnect; dev is used only to integrate completed feature branches.
 Last verified commit: main is 565f112; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
-Last verified test run: 170 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
+Last verified test run: 173 unit tests passed with xcodebuild on 2026-11-26 (see section 6).
 Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
 Last remote synchronization: main matches origin/main at 565f112. dev is ahead of origin/dev with the release candidate; the sleep-and-reconnect branch is local only; nothing has been pushed.
 
@@ -123,7 +123,11 @@ Phase 8 — stabilization and release candidate:
 * The application watches `NSWorkspace.didWakeNotification`; after a wake it reconnects the session, reloads the file at the last position, and retries while the network comes back.
 * `CastClient.Media` carries the start position, so a resumed cast continues where the device stopped instead of starting over.
 * Closing the lid still sleeps the Mac, which no application can prevent; README documents that, the clamshell and `pmset disablesleep` options, and how to check the assertion with `pmset -g assertions`.
-* 22 additional unit tests (170 in total) covering the power assertion lifetime, the interrupted cast, the resume path, the wake retries, the lost-connection reporting, the reconnect and the position carried into a resumed load.
+* A lost session no longer puts the Mac to sleep before recovery can run: the assertion stays held through the recovery attempts, which now also start without waiting for a wake. Giving up releases it.
+* The cast lifecycle is written to the unified log (play, cast started and failed, interrupt with its reason, resume position, recovery outcome, connection lost, receiver stopped, silent device, media server listening and refusals), so a session that ends hours later can be explained with `log show`.
+* The media server accepts up to 16 simultaneous connections and logs a refusal, so a temporary backlog cannot silently starve the receiver.
+* Verification of the block above: `pmset -g log` shows the cast assertion held for 1h31m09s with the display off and on battery on 2026-11-25, so the idle-sleep and App Nap protection is observed behaviour rather than a unit test only. The wake recovery, the loss recovery and the diagnostics are covered by unit tests; the real cast that ended after those 1h31 took the app down with it (the app released the assertion, the Mac slept 5 seconds later) and the cause is not recorded, because the app wrote nothing to the unified log at the time.
+* 25 additional unit tests (173 in total) covering the power assertion lifetime, the interrupted cast, the resume path, the wake and loss recovery attempts, the assertion kept during recovery, the lost-connection reporting, the reconnect and the position carried into a resumed load.
 
 4. In Progress
 * The release decision is open: no tag, no signing identity and no notarization have been chosen, so 1.0.0 is a built candidate rather than a published release.
@@ -153,7 +157,7 @@ Test:
 Verified on 2026-11-25 with Xcode 27.2:
 
 * Clean Debug build succeeded with no compiler warnings.
-* Test run succeeded: 170 tests in 17 suites. The Release configuration builds; tests run in Debug because they use `@testable`.
+* Test run succeeded: 148 tests in 16 suites on 2026-11-25, and 173 tests in 17 suites on 2026-11-26. The Release configuration builds; tests run in Debug because they use `@testable`.
 * The built application launches, keeps running and quits cleanly.
 * An offscreen render confirmed the layout of the video states. The new screen hosts a scroll view, which the offscreen renderer cannot draw, so the device section is a manual check.
 * Discovery was verified end to end against a Bonjour service registered on this machine: the browser reported the device once with its TXT record, and reported it removed when the service stopped. The test host itself cannot browse, because macOS gives it no local network access without a user decision.
@@ -224,12 +228,13 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-25 | feature/playback-controls | Media status parsing, playback commands and the transport controls | 146 tests passed; gga required app-level playback types and deterministic timeout tests | c721470 |
 | 2026-11-25 | dev | Integrated the Phase 7 branch | Build and tests re-run on dev after the merge | see section 6 |
 | 2026-11-25 | main | Pull request #8 merged dev into main | Build and tests verified on dev before the merge | be69da3 |
-| 2026-11-25 | feature/release-stabilization | Receiver-stop handling, accessibility labels, release documentation and version 1.0.0 | 148 tests passed in Debug, Release build succeeded | this commit |
-| 2026-11-25 | dev | Integrated the release candidate; the user confirmed the full cast flow and the playback controls on a Google TV | Build and tests re-run on dev after the merge | this merge |
+| 2026-11-25 | feature/release-stabilization | Receiver-stop handling, accessibility labels, release documentation and version 1.0.0 | 148 tests passed in Debug, Release build succeeded | e8e3688 |
+| 2026-11-25 | dev | Integrated the release candidate; the user confirmed the full cast flow and the playback controls on a Google TV | Build and tests re-run on dev after the merge | 711c06e |
 | 2026-11-25 | dev | Integrated the Phase 3 branch | Build and tests re-run on dev after the merge | see section 6 |
 | 2026-11-25 | feature/sleep-and-reconnect | Lost connections are reported, the session keeps the position and a reconnect opens a new session | 170 tests passed in Debug; gga rejected a polling test helper and a swallowed send error, both fixed | e3dfabb |
 | 2026-11-25 | feature/sleep-and-reconnect | Cast power assertion, interrupted cast state, wake watcher and automatic resume at the last position | 170 tests passed in Debug, Release build succeeded; gga passed | d087878 |
 | 2026-11-25 | feature/sleep-and-reconnect | Transport stores its connection before `connect()` returns | 170 tests passed in Debug; gga passed | 88fcdc6 |
+| 2026-11-26 | feature/sleep-and-reconnect | Unified-log diagnostics, the wake lock kept through recovery and recovery that starts without a wake | 173 tests passed in Debug, Release build succeeded; found after a real 1h31 cast ended and the Mac slept in 5 seconds | see section 1 |
 
 8. Blockers and Risks
 No active blocker.

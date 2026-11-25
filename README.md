@@ -156,6 +156,16 @@ wakes, the application reconnects to the device and resumes the video from the l
 position the device reported. If that attempt fails, the playback section offers Resume
 and Stop instead of pretending the session is still running.
 
+A session that drops while the Mac is awake is recovered the same way: the application
+keeps the Mac awake, reconnects and reloads the file where the device stopped, retrying
+three times. It releases the wake lock only when recovery gives up, so a short network
+loss cannot put the Mac to sleep before the recovery had a chance to run.
+
+Every step of that lifecycle is written to the unified log, which is where to look when a
+session ends hours later:
+
+    log show --last 2h --predicate 'subsystem == "io.github.zameo94.GoogleCastPlayer"'
+
 The assertion can be checked from a terminal while a cast is running:
 
     pmset -g assertions
@@ -179,8 +189,6 @@ Known limitations
   promise playback on a specific device.
 * The displayed playback position is interpolated between status updates and can drift
   by about a second.
-* Pause, seek and reported playback state are covered by tests but were not exercised on
-  a physical device at the time this section was written.
 * While the Mac is asleep, for example with the lid closed, the cast stops. It resumes
   automatically after the wake, but the video does not keep playing through the sleep.
 

@@ -288,8 +288,41 @@ struct PlaybackModelTests {
 
         #expect(model.state == .interrupted(reason: "The connection to the device was lost."))
         #expect(server.stops >= 2)
-        #expect(!power.isActive)
         #expect(model.file?.name == "movie.mp4")
+    }
+
+    @Test func keepsTheMacAwakeWhileTheCastCanBeRecovered() async throws {
+        let power = FakePowerAssertion()
+        let model = PlaybackModel(server: try successServer(), power: power)
+        await model.play(file: file(), connection: FakeMediaLoader())
+
+        model.interrupt(reason: "lost")
+
+        // Releasing the assertion here would put the Mac to sleep before the recovery
+        // could run, which is what turned a short loss into a dead session.
+        #expect(power.isActive)
+        #expect(power.endCount == 0)
+    }
+
+    @Test func releasesTheMacWhenTheRecoveryGivesUp() async throws {
+        let loader = FakeMediaLoader()
+        loader.reconnects = false
+        let power = FakePowerAssertion()
+        let model = PlaybackModel(
+            server: try successServer(),
+            power: power,
+            sleeper: ImmediateSleeper()
+        )
+        await model.play(file: file(), connection: loader)
+        model.interrupt(reason: "lost")
+
+        await model.recoverCast()
+
+        #expect(!power.isActive)
+        guard case .interrupted = model.state else {
+            Issue.record("Expected an interrupted cast, got \(model.state)")
+            return
+        }
     }
 
     @Test func ignoresAnInterruptionWhenNothingWasCasting() async {
@@ -383,6 +416,25 @@ struct PlaybackModelTests {
         #expect(loader.reconnectCount == 3)
         guard case .interrupted = model.state else {
             Issue.record("Expected an interrupted cast, got \(model.state)")
+            return
+        }
+    }
+
+    @Test func recoversTheInterruptedCastWithoutAWake() async throws {
+        let loader = FakeMediaLoader()
+        let power = FakePowerAssertion()
+        let model = PlaybackModel(server: try successServer(), power: power)
+        await model.play(file: file(), connection: loader)
+        loader.resumePosition = 12
+        model.interrupt(reason: "lost")
+
+        await model.recoverCast()
+
+        #expect(loader.reconnectCount == 1)
+        #expect(loader.loadedMedia.last?.currentTime == 12)
+        #expect(power.isActive)
+        guard case .casting = model.state else {
+            Issue.record("Expected casting, got \(model.state)")
             return
         }
     }
