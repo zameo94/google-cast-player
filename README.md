@@ -11,17 +11,19 @@ uploaded to a cloud service, and no external media server is involved.
 Development status
 ------------------
 
-The project is in **Phase 6 — end-to-end streaming**. The application imports a
-local video file, reports its name, container format, size, duration, resolution
-and codecs, judges the format against the playback profile the app targets (MP4,
-H.264, AAC), lists the Chromecast and Google TV devices on the local network,
-and can open a session with a selected device: it connects over TLS, starts the
-Default Media Receiver and reports the state the device confirms. Casting a video
-starts the local HTTP server for that file and hands the URL to the device, so the
-receiver fetches the media directly from the Mac; stopping the cast closes the
-server. The format verdict describes the file, not a device. Playback controls and
-reported playback state come next; see ROADMAP.md for the phased plan and
-acceptance criteria.
+The project is in **Phase 7 — playback controls**. The application imports a local
+video file, reports its name, container format, size, duration, resolution and codecs,
+judges the format against the playback profile the app targets (MP4, H.264, AAC),
+lists the Chromecast and Google TV devices on the local network, and can open a
+session with a selected device: it connects over TLS, starts the Default Media
+Receiver and reports the state the device confirms. Casting a video starts the local
+HTTP server for that file and hands the URL to the device, so the receiver fetches the
+media directly from the Mac.
+
+Play, pause and seek, together with the state the device reports, are implemented on
+the playback-controls branch and are covered by tests; they still need a hardware
+check before they count as verified. Stopping the cast closes the server. See
+ROADMAP.md for the phased plan and acceptance criteria.
 
 Requirements
 ------------

@@ -188,7 +188,7 @@ Acceptance criteria:
 * Protocol handling has appropriate tests.
 * The implementation has been verified against a real compatible device.
 Phase 6 — End-to-End Local Video Streaming
-Status: Implemented, verified on a physical device and integrated into dev; promotion to main pending.
+Status: Complete.
 Objectives:
 * Connect media selection, local HTTP serving, and Cast communication.
 * Start the HTTP server for the selected file.
@@ -208,7 +208,7 @@ Acceptance criteria:
 * Server and Cast session resources are cleaned up correctly.
 * The complete workflow has been verified on physical hardware.
 Phase 7 — Playback Controls and User Experience
-Status: Not assessed.
+Status: Implemented and integrated into dev; controls and reported state are covered by tests, hardware verification pending.
 Objectives:
 * Implement play and pause.
 * Implement stop/disconnect.

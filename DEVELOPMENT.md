@@ -1,16 +1,16 @@
 Google Cast Player — Development
 
 1. Current State
-Overall status: Phase 0 to Phase 5 on main and verified on a physical device; Phase 6 implemented, verified on the same device and integrated into dev.
-Current development phase: Phase 6 — End-to-End Local Video Streaming (verified on a Google TV and integrated into dev; promotion to main pending).
-Current milestone: Promotion of dev to main and Phase 7 preparation.
-Current feature branches: feature/end-to-end-streaming (Phase 6), created from main at 51cdca4 and merged into dev.
+Overall status: Phase 0 to Phase 6 on main and verified on a physical device; Phase 7 implemented and integrated into dev, hardware verification pending.
+Current development phase: Phase 7 — Playback Controls and User Experience (implemented and integrated into dev; controls and reported state covered by tests, hardware verification pending).
+Current milestone: Hardware verification of the playback controls, then promotion.
+Current feature branches: feature/playback-controls (Phase 7), created from main at 021984c and merged into dev.
 Current working branch: dev, used only to integrate completed feature branches; feature work happens on feature/<name> branches.
-Last verified commit: main is 51cdca4; feature commits are listed in section 7.
+Last verified commit: main is 021984c; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
-Last verified test run: 137 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
+Last verified test run: 146 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
 Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
-Last remote synchronization: main matches origin/main at 51cdca4. dev is ahead of origin/dev with the integrated Phase 6 work; nothing has been pushed.
+Last remote synchronization: main matches origin/main at 021984c. dev is ahead of origin/dev with the integrated Phase 7 work; nothing has been pushed.
 
 2. Verified Environment
 Verified on the development machine before this status was written:
@@ -99,10 +99,19 @@ Phase 6 — end-to-end local video streaming:
 * Server failures and load failures now carry user-facing descriptions.
 * 12 additional unit tests (137 in total), including an integration test that fetches the exact URL handed to the device, tests of the stop sequence, of stopping playback alone, of the cast orchestration and of a repeated connect.
 
+Phase 7 — playback controls and reported state:
+
+* `CastClient` reads `MEDIA_STATUS` into state, position, duration and idle reason, keeps the last known duration when an update omits the media block, and sends `PLAY`, `PAUSE` and `SEEK` with request ids.
+* `CastConnectionModel` exposes an app-level `PlaybackSnapshot` and forwards the controls; the window depends only on that snapshot and never on Cast protocol types.
+* `PlaybackControls` shows what the device reports: Playing on the device, Paused, Buffering, Finished or Playback failed, with a play or pause button enabled only when the media can accept it, a seek bar with elapsed and total time, and Stop.
+* The elapsed time advances locally between status updates while the device reports playing, and realigns to every status it receives.
+* The launch timeout is driven by an injectable sleeper, so timeout behaviour is tested without waiting on wall time.
+* 9 additional unit tests (146 in total) covering status parsing, command payloads, snapshot mapping, status merging and the timeout path.
+
 4. In Progress
-* Promotion of dev to main: Phase 6 is verified on hardware and integrated into dev, and needs the user's approval to reach main.
+* Hardware verification of Phase 7: play, pause, seek and the reported state are integrated but have not been exercised on the Google TV yet.
 * Stop keeps the session open by design, so the receiver and the cast indicator stay; Disconnect stops the receiver and closes the session, and the user confirmed both behaviours on hardware.
-* Phase 7 (playback controls and reported state) has not started and waits for the promotion of dev to main.
+* Phase 8 (stabilization and release) has not started and waits for the Phase 7 verification.
 
 5. Quality Gate and Tooling Decisions
 * The review gate is enforced by a Git pre-commit hook installed with scripts/install-git-hooks.sh; the hook refuses to run when gga or the local .gga configuration is missing instead of skipping the review.
@@ -126,7 +135,7 @@ Test:
 Verified on 2026-11-25 with Xcode 27.2:
 
 * Clean Debug build succeeded with no compiler warnings.
-* Test run succeeded: 137 tests in 16 suites.
+* Test run succeeded: 146 tests in 16 suites.
 * The built application launches, keeps running and quits cleanly.
 * An offscreen render confirmed the layout of the video states. The new screen hosts a scroll view, which the offscreen renderer cannot draw, so the device section is a manual check.
 * Discovery was verified end to end against a Bonjour service registered on this machine: the browser reported the device once with its TXT record, and reported it removed when the service stopped. The test host itself cannot browse, because macOS gives it no local network access without a user decision.
@@ -191,6 +200,9 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-25 | feature/end-to-end-streaming | Disconnect replaces Connect on a connected card, and a repeated connect keeps the session | 137 tests passed | 9f2c275 |
 | 2026-11-25 | feature/end-to-end-streaming | A single disconnect action on the card | 137 tests passed | ba87133 |
 | 2026-11-25 | dev | Integrated the Phase 6 branch | Build and tests re-run on dev after the merge | see section 6 |
+| 2026-11-25 | main | Pull request #7 merged dev into main | Build and tests verified on dev before the merge | 021984c |
+| 2026-11-25 | feature/playback-controls | Media status parsing, playback commands and the transport controls | 146 tests passed; gga required app-level playback types and deterministic timeout tests | c721470 |
+| 2026-11-25 | dev | Integrated the Phase 7 branch | Build and tests re-run on dev after the merge | see section 6 |
 | 2026-11-25 | dev | Integrated the Phase 3 branch | Build and tests re-run on dev after the merge | see section 6 |
 
 8. Blockers and Risks
@@ -198,7 +210,7 @@ No active blocker.
 
 Risks and pending verification:
 
-* Phase 0 to Phase 5 reached main through pull requests #2 to #6. Phase 6 is verified on a physical device and integrated into dev; only the promotion to main is left before ROADMAP.md allows it to be marked complete.
+* Phase 0 to Phase 6 reached main through pull requests #2 to #7. Phase 7 is integrated into dev and needs the hardware check before promotion.
 * Discovery, connection and playback were confirmed on a Google TV on 2026-11-25. Other device models, and how quickly a device returns to its ambient screen after Stop, remain unverified.
 * The test host of the automated suite cannot browse the network, because macOS grants local network access to an app only after the user allows it. Discovery therefore has no automated network test.
 * Continuous integration has not run on GitHub yet; it can only be verified after the first push.
@@ -207,18 +219,19 @@ Risks and pending verification:
 * The media server speaks plain HTTP with no authentication beyond the unguessable per-session path. It is meant for a trusted local network and only while a session needs it; the server is not exposed outside the LAN by the app.
 * The server runs only while a cast is active: `PlaybackModel` starts it for the selected file and stops it when the cast ends, and its behaviour is covered by tests.
 * The interactive checklist was exercised by the user on a Google TV; items 5 (unreadable container) and 9 (device turned off while connected) were not exercised.
+* The position shown between status updates is interpolated locally, so it can drift by a second until the next status arrives; seeking is sent only when the slider is released.
 * The compatibility verdict describes the container and codecs only. Real playback on a receiver is unverified, so the interface never labels a file as playable, only as matching or not matching the format profile.
 * Interactive and visual checks are manual: the shell has neither screen recording nor accessibility permission, and there is no UI test target. Section 6 records which checks the user exercised and which are still pending.
 * Repository branch protection and required status checks cannot be configured from this environment and must be verified on GitHub by the user.
 * The review gate depends on the locally configured AI provider. A review that misjudges valid code blocks the commit until it is rerun; build and test results remain the authoritative verification.
 
 9. Next Objective
-Promote Phase 6 and prepare Phase 7:
-1. Push dev and verify that the GitHub Actions workflow runs successfully on it (pushing requires explicit user approval).
-2. Authorize the promotion of dev to main so Phase 6 can be marked complete.
-3. Only then start Phase 7 — playback controls and reported state — following ROADMAP.md.
+Verify Phase 7 on hardware and promote it:
+1. On a Google TV, cast a video and exercise play, pause and seek; the window must follow the state the device reports.
+2. Record the outcome here, then push dev and authorize the promotion of dev to main (both require explicit user approval).
+3. Only then start Phase 8 — stabilization and MVP release — following ROADMAP.md.
 
-Do not start playback controls or release work before their planned phases.
+Do not start release work before its planned phase.
 
 10. Maintenance Rules
 * Update this file after each meaningful development milestone.

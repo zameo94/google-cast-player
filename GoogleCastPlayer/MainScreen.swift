@@ -278,7 +278,7 @@ struct MainScreen: View {
                 playbackRow(selectedDevice)
             }
 
-            Text("A blue card is selected, a green card is connected. Casting serves the file from this Mac over the local network; pause, seek and reported playback state arrive in the next step.")
+            Text("A blue card is selected, a green card is connected. The file is served from this Mac over the local network, and the controls follow what the device reports.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -467,22 +467,8 @@ struct MainScreen: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-            case let .casting(url):
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Label("Sent to \(device.name)", systemImage: "airplayvideo")
-                            .font(.callout.weight(.medium))
-                            .foregroundStyle(Color.green)
-                        Spacer(minLength: 0)
-                        Button("Stop") {
-                            Task { await playback.stopPlayback(connection: connection) }
-                        }
-                    }
-                    Text(url.absoluteString)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
+            case .casting:
+                PlaybackControls(device: device, connection: connection, playback: playback)
             case let .failed(message):
                 VStack(alignment: .leading, spacing: 6) {
                     Label("Casting failed", systemImage: "xmark.circle.fill")

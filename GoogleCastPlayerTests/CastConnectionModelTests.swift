@@ -11,6 +11,10 @@ final class FakeCastSession: CastSessionControlling {
     private(set) var stopCount = 0
     private(set) var loadedMedia: [CastClient.Media] = []
     private(set) var stopMediaCount = 0
+    private(set) var resumeCount = 0
+    private(set) var pauseCount = 0
+    private(set) var seekPositions: [TimeInterval] = []
+    var onMediaStatusChange: ((CastClient.MediaStatus?) -> Void)?
     var loadError: (any Error)?
 
     init(result: Result<String, any Error> = .success("web-5")) {
@@ -27,6 +31,18 @@ final class FakeCastSession: CastSessionControlling {
             throw loadError
         }
         loadedMedia.append(media)
+    }
+
+    func resumePlayback() async {
+        resumeCount += 1
+    }
+
+    func pausePlayback() async {
+        pauseCount += 1
+    }
+
+    func seekPlayback(to position: TimeInterval) async {
+        seekPositions.append(position)
     }
 
     func stopMediaPlayback() async {
@@ -115,6 +131,83 @@ struct CastConnectionModelTests {
         #expect(session.startCount == 1)
         #expect(session.stopCount == 0)
         #expect(connection.state == .connected)
+    }
+
+    @Test func forwardsThePlaybackCommands() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+
+        await connection.pause()
+        await connection.play()
+        await connection.seek(to: 42)
+
+        #expect(session.pauseCount == 1)
+        #expect(session.resumeCount == 1)
+        #expect(session.seekPositions == [42])
+    }
+
+    @Test func keepsTheMediaStatusReportedByTheSession() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+        let status = CastClient.MediaStatus(
+            mediaSessionID: 7,
+            playerState: .playing,
+            position: 5,
+            duration: 90,
+            idleReason: nil
+        )
+
+        session.onMediaStatusChange?(status)
+
+        #expect(connection.mediaStatus == status)
+        #expect(connection.mediaStatusReceivedAt != nil)
+    }
+
+    @Test func mapsTheReportedStatusToAPlaybackSnapshot() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+
+        session.onMediaStatusChange?(
+            CastClient.MediaStatus(mediaSessionID: 7, playerState: .playing, position: 30, duration: 90, idleReason: nil)
+        )
+
+        let snapshot = connection.playbackSnapshot
+        #expect(snapshot?.status == .playing)
+        #expect(snapshot?.position == 30)
+        #expect(snapshot?.duration == 90)
+        #expect(snapshot?.receivedAt != nil)
+    }
+
+    @Test func mapsAnIdleErrorToFailureAndAnIdleStopToFinished() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+
+        session.onMediaStatusChange?(
+            CastClient.MediaStatus(mediaSessionID: 7, playerState: .idle, position: nil, duration: 90, idleReason: "ERROR")
+        )
+        #expect(connection.playbackSnapshot?.status == .failed)
+
+        session.onMediaStatusChange?(
+            CastClient.MediaStatus(mediaSessionID: 7, playerState: .idle, position: nil, duration: 90, idleReason: "CANCELLED")
+        )
+        #expect(connection.playbackSnapshot?.status == .finished)
+    }
+
+    @Test func clearsTheMediaStatusWhenDisconnecting() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+        session.onMediaStatusChange?(
+            CastClient.MediaStatus(mediaSessionID: 7, playerState: .playing, position: 5, duration: 90, idleReason: nil)
+        )
+
+        await connection.disconnect()
+
+        #expect(connection.mediaStatus == nil)
     }
 
     @Test func stopsPlaybackWithoutEndingTheSession() async {

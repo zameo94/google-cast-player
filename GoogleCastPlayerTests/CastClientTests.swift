@@ -2,6 +2,11 @@ import Foundation
 import Testing
 @testable import GoogleCastPlayer
 
+/// Sleeper that returns at once, so a timeout fires without waiting on wall time.
+struct ImmediateSleeper: Sleeping {
+    func sleep(for duration: Duration) async {}
+}
+
 /// Transport double that records what the client sends and delivers what the test pushes.
 final class ScriptedCastTransport: CastTransporting, @unchecked Sendable {
     private struct Waiter {
@@ -96,10 +101,16 @@ final class ScriptedCastTransport: CastTransporting, @unchecked Sendable {
 struct CastClientTests {
     private func connectClient(
         launchTimeout: Duration = .seconds(1),
-        heartbeat: Duration = .seconds(60)
+        heartbeat: Duration = .seconds(60),
+        sleeper: (any Sleeping)? = nil
     ) async throws -> (CastClient, ScriptedCastTransport) {
         let transport = ScriptedCastTransport()
-        let client = CastClient(transport: transport, launchTimeout: launchTimeout, heartbeatInterval: heartbeat)
+        let client = CastClient(
+            transport: transport,
+            launchTimeout: launchTimeout,
+            heartbeatInterval: heartbeat,
+            sleeper: sleeper ?? TaskSleeper()
+        )
         try await client.connect()
         return (client, transport)
     }
@@ -140,7 +151,7 @@ struct CastClientTests {
     }
 
     @Test func ignoresAReceiverStatusForAnotherApplication() async throws {
-        let (client, transport) = try await connectClient(launchTimeout: .milliseconds(300))
+        let (client, transport) = try await connectClient(launchTimeout: .seconds(30))
         let launch = Task { try await client.launchDefaultReceiver() }
         await transport.waitForSentFrames(2)
 
@@ -152,19 +163,27 @@ struct CastClientTests {
                 payload: #"{"type":"RECEIVER_STATUS","status":{"applications":[{"appId":"OTHER","transportId":"web-9"}]}}"#
             )
         )
+        transport.push(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.receiver,
+                payload: #"{"type":"RECEIVER_STATUS","status":{"applications":[{"appId":"CC1AD845","transportId":"web-5"}]}}"#
+            )
+        )
 
-        await #expect(throws: CastClient.ClientError.receiverLaunchTimedOut) {
-            try await launch.value
-        }
+        let transportID = try await launch.value
+        #expect(transportID == "web-5")
     }
 
     @Test func reportsATimedOutLaunch() async throws {
-        let (client, transport) = try await connectClient(launchTimeout: .milliseconds(100))
-        let launch = Task { try await client.launchDefaultReceiver() }
-        await transport.waitForSentFrames(2)
+        let (client, _) = try await connectClient(
+            launchTimeout: .seconds(1),
+            sleeper: ImmediateSleeper()
+        )
 
         await #expect(throws: CastClient.ClientError.receiverLaunchTimedOut) {
-            try await launch.value
+            try await client.launchDefaultReceiver()
         }
     }
 
@@ -238,6 +257,97 @@ struct CastClientTests {
         let close = try #require(sent.last { $0.namespace == CastClient.Namespace.connection })
         #expect(close.payload == #"{"type":"CLOSE"}"#)
         #expect(transport.isClosed)
+    }
+
+    private func connectAndReportMedia(
+        _ client: CastClient,
+        _ transport: ScriptedCastTransport,
+        state: String = "PLAYING"
+    ) async throws {
+        let launch = Task { try await client.launchDefaultReceiver() }
+        await transport.waitForSentFrames(2)
+        transport.push(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.receiver,
+                payload: #"{"type":"RECEIVER_STATUS","status":{"applications":[{"appId":"CC1AD845","transportId":"web-5","sessionId":"session-1"}]}}"#
+            )
+        )
+        _ = try await launch.value
+        client.handle(
+            CastMessage(
+                sourceID: "web-5",
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.media,
+                payload: #"{"type":"MEDIA_STATUS","status":[{"mediaSessionId":7,"playerState":"\#(state)","currentTime":5.5,"media":{"duration":90.0}}]}"#
+            ).framed()
+        )
+    }
+
+    @Test func readsTheReportedMediaStatus() async throws {
+        let (client, transport) = try await connectClient()
+        try await connectAndReportMedia(client, transport, state: "PAUSED")
+
+        let status = try #require(client.mediaStatus)
+        #expect(status.mediaSessionID == 7)
+        #expect(status.playerState == .paused)
+        #expect(status.position == 5.5)
+        #expect(status.duration == 90)
+    }
+
+    @Test func keepsTheDurationWhenAnUpdateOmitsIt() async throws {
+        let (client, transport) = try await connectClient()
+        try await connectAndReportMedia(client, transport)
+        #expect(client.mediaStatus?.duration == 90)
+
+        client.handle(
+            CastMessage(
+                sourceID: "web-5",
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.media,
+                payload: #"{"type":"MEDIA_STATUS","status":[{"mediaSessionId":7,"playerState":"PAUSED","currentTime":12.0}]}"#
+            ).framed()
+        )
+
+        #expect(client.mediaStatus?.duration == 90)
+        #expect(client.mediaStatus?.position == 12)
+        #expect(client.mediaStatus?.playerState == .paused)
+    }
+
+    @Test func sendsPlaybackCommandsWithRequestIds() async throws {
+        let (client, transport) = try await connectClient()
+        try await connectAndReportMedia(client, transport)
+
+        await client.pause()
+        await client.play()
+        await client.seek(to: 42)
+
+        let mediaCommands = transport.sentMessages.filter { $0.namespace == CastClient.Namespace.media }
+        let types = mediaCommands.compactMap { message -> String? in
+            guard let data = message.payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            return object["type"] as? String
+        }
+        #expect(types == ["PAUSE", "PLAY", "SEEK"])
+
+        let seek = try #require(mediaCommands.last)
+        let seekPayload = try #require(
+            try JSONSerialization.jsonObject(with: Data(seek.payload.utf8)) as? [String: Any]
+        )
+        #expect(seekPayload["currentTime"] as? Double == 42)
+        #expect(seekPayload["mediaSessionId"] as? Int == 7)
+        #expect(seekPayload["requestId"] as? Int != nil)
+    }
+
+    @Test func ignoresPlaybackCommandsWithoutAMediaSession() async throws {
+        let (client, transport) = try await connectClient()
+
+        await client.play()
+
+        #expect(!transport.sentMessages.contains { $0.namespace == CastClient.Namespace.media })
     }
 
     @Test func stopsOnlyTheMediaPlayback() async throws {

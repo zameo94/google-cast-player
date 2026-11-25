@@ -1,5 +1,16 @@
 import Foundation
 
+/// Waits for a duration; injected so timeouts can be tested without wall-clock waits.
+protocol Sleeping: Sendable {
+    func sleep(for duration: Duration) async
+}
+
+struct TaskSleeper: Sleeping {
+    func sleep(for duration: Duration) async {
+        try? await Task.sleep(for: duration)
+    }
+}
+
 /// Drives the Cast V2 handshake over a transport.
 ///
 /// The client speaks the parts of the protocol the app needs: the connection namespace,
@@ -40,6 +51,28 @@ final class CastClient {
         }
     }
 
+    /// What the receiver reports about the media it is playing.
+    struct MediaStatus: Equatable, Sendable {
+        enum PlayerState: String, Equatable, Sendable {
+            case playing = "PLAYING"
+            case paused = "PAUSED"
+            case buffering = "BUFFERING"
+            case idle = "IDLE"
+            case unknown = "UNKNOWN"
+        }
+
+        /// Identifier the receiver uses for this media session.
+        let mediaSessionID: Int
+        /// State the receiver reports.
+        let playerState: PlayerState
+        /// Playback position the receiver reported, in seconds.
+        let position: TimeInterval?
+        /// Duration of the media, in seconds.
+        let duration: TimeInterval?
+        /// Why the media went idle, when the receiver says so.
+        let idleReason: String?
+    }
+
     enum Namespace {
         static let connection = "urn:x-cast:com.google.cast.tp.connection"
         static let heartbeat = "urn:x-cast:com.google.cast.tp.heartbeat"
@@ -60,6 +93,7 @@ final class CastClient {
     private let transport: any CastTransporting
     private let launchTimeout: Duration
     private let heartbeatInterval: Duration
+    private let sleeper: any Sleeping
 
     private var receiveTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
@@ -68,8 +102,10 @@ final class CastClient {
     private var receiverTransportID: String?
     private var receiverSessionID: String?
     private var mediaSessionID: Int?
-    /// Last player state the receiver reported, for example `PLAYING`.
-    private(set) var playerState: String?
+    /// Last media status the receiver reported.
+    private(set) var mediaStatus: MediaStatus?
+    /// Called on every media status the receiver reports.
+    var onMediaStatus: ((MediaStatus?) -> Void)?
     private var receiverBuffer = Data()
     private var nextRequestID = 1
     private var isConnected = false
@@ -77,11 +113,13 @@ final class CastClient {
     init(
         transport: any CastTransporting,
         launchTimeout: Duration = .seconds(10),
-        heartbeatInterval: Duration = .seconds(5)
+        heartbeatInterval: Duration = .seconds(5),
+        sleeper: any Sleeping = TaskSleeper()
     ) {
         self.transport = transport
         self.launchTimeout = launchTimeout
         self.heartbeatInterval = heartbeatInterval
+        self.sleeper = sleeper
     }
 
     /// Opens the transport and announces the sender to the receiver.
@@ -150,6 +188,9 @@ final class CastClient {
         )
 
         let requestID = takeRequestID()
+        mediaSessionID = nil
+        mediaStatus = nil
+        onMediaStatus?(nil)
         try await send(
             CastMessage(
                 sourceID: Self.senderID,
@@ -161,12 +202,36 @@ final class CastClient {
         return requestID
     }
 
-    /// Stops the media that is playing, and nothing else.
-    ///
-    /// The session stays open, so the device keeps its receiver screen and the sender
-    /// can load another media without reconnecting.
-    func stopMedia() async {
-        guard isConnected, let transportID = receiverTransportID, let mediaSessionID else {
+    /// Resumes the media that is paused.
+    func play() async {
+        await sendMediaCommand("PLAY")
+    }
+
+    /// Pauses the media that is playing.
+    func pause() async {
+        await sendMediaCommand("PAUSE")
+    }
+
+    /// Moves the playing media to `position`, in seconds.
+    func seek(to position: TimeInterval) async {
+        await sendMediaCommand("SEEK", fields: ["currentTime": position])
+    }
+
+    private func sendMediaCommand(_ type: String, fields: [String: Any] = [:]) async {
+        guard isConnected,
+              let transportID = receiverTransportID,
+              let mediaSessionID else {
+            return
+        }
+        var object: [String: Any] = [
+            "type": type,
+            "requestId": takeRequestID(),
+            "mediaSessionId": mediaSessionID,
+        ]
+        for (key, value) in fields {
+            object[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
             return
         }
         try? await send(
@@ -174,11 +239,20 @@ final class CastClient {
                 sourceID: Self.senderID,
                 destinationID: transportID,
                 namespace: Namespace.media,
-                payload: #"{"type":"STOP","requestId":\#(takeRequestID()),"mediaSessionId":\#(mediaSessionID)}"#
+                payload: String(decoding: data, as: UTF8.self)
             )
         )
-        self.mediaSessionID = nil
-        playerState = nil
+    }
+
+    /// Stops the media that is playing, and nothing else.
+    ///
+    /// The session stays open, so the device keeps its receiver screen and the sender
+    /// can load another media without reconnecting.
+    func stopMedia() async {
+        await sendMediaCommand("STOP")
+        mediaSessionID = nil
+        mediaStatus = nil
+        onMediaStatus?(nil)
     }
 
     /// Stops the media and the receiver application, then closes the transport.
@@ -284,7 +358,8 @@ final class CastClient {
                 receiverTransportID = nil
                 receiverSessionID = nil
                 mediaSessionID = nil
-                playerState = nil
+                mediaStatus = nil
+                onMediaStatus?(nil)
             }
             return
         }
@@ -298,15 +373,26 @@ final class CastClient {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               object["type"] as? String == "MEDIA_STATUS",
               let statuses = object["status"] as? [[String: Any]],
-              let status = statuses.first else {
+              let status = statuses.first,
+              let mediaSessionID = status["mediaSessionId"] as? Int else {
             return
         }
-        if let mediaSessionID = status["mediaSessionId"] as? Int {
-            self.mediaSessionID = mediaSessionID
-        }
-        if let playerState = status["playerState"] as? String {
-            self.playerState = playerState
-        }
+
+        let rawState = status["playerState"] as? String
+        let playerState = rawState.flatMap(MediaStatus.PlayerState.init(rawValue:)) ?? .unknown
+        let media = status["media"] as? [String: Any]
+        // Some updates omit the media block or the position; the last known value stands.
+        let parsed = MediaStatus(
+            mediaSessionID: mediaSessionID,
+            playerState: playerState,
+            position: (status["currentTime"] as? TimeInterval) ?? mediaStatus?.position,
+            duration: (media?["duration"] as? TimeInterval) ?? mediaStatus?.duration,
+            idleReason: (status["idleReason"] as? String) ?? mediaStatus?.idleReason
+        )
+        mediaStatus = parsed
+        // An idle media cannot be controlled any more, but its status stays visible.
+        self.mediaSessionID = playerState == .idle ? nil : mediaSessionID
+        onMediaStatus?(parsed)
     }
 
     // MARK: - Background work
@@ -346,9 +432,10 @@ final class CastClient {
 
     private func scheduleLaunchTimeout() {
         let timeout = launchTimeout
+        let sleeper = sleeper
         launchTimeoutTask?.cancel()
         launchTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: timeout)
+            await sleeper.sleep(for: timeout)
             guard let self, !Task.isCancelled else {
                 return
             }
