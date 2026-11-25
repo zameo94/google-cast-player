@@ -11,8 +11,12 @@ protocol CastSessionControlling: AnyObject {
     ///
     /// - Returns: The transport id of the running receiver.
     func start() async throws -> String
-    /// Closes the session.
-    func stop()
+    /// Asks the running receiver to load `media`.
+    func loadMedia(_ media: CastClient.Media, transportID: String) async throws
+    /// Stops the playing media and keeps the session open.
+    func stopMediaPlayback() async
+    /// Ends the session: stops the media and the receiver, then closes.
+    func stop() async
 }
 
 extension CastClient: CastSessionControlling {
@@ -21,8 +25,16 @@ extension CastClient: CastSessionControlling {
         return try await launchDefaultReceiver()
     }
 
-    func stop() {
-        disconnect()
+    func loadMedia(_ media: CastClient.Media, transportID: String) async throws {
+        try await load(media, transportID: transportID)
+    }
+
+    func stopMediaPlayback() async {
+        await stopMedia()
+    }
+
+    func stop() async {
+        await endSession()
     }
 }
 
@@ -64,14 +76,20 @@ final class CastConnectionModel {
     }
 
     /// Opens a session with `device` and starts its receiver.
+    ///
+    /// Connecting to the device that is already connected is a no-op, so a stray tap
+    /// never tears down a running session.
     func connect(to device: CastDevice) async {
+        if state == .connected, connectedDevice?.id == device.id {
+            return
+        }
         guard let endpoint = device.endpoint else {
             connectedDevice = device
             state = .failed("This device cannot be reached yet. Search again to refresh it.")
             return
         }
 
-        stopSession()
+        await stopSession()
         attempt += 1
         let currentAttempt = attempt
         connectedDevice = device
@@ -84,7 +102,7 @@ final class CastConnectionModel {
         do {
             let transportID = try await session.start()
             guard currentAttempt == attempt else {
-                session.stop()
+                await session.stop()
                 return
             }
             receiverTransportID = transportID
@@ -93,23 +111,43 @@ final class CastConnectionModel {
             guard currentAttempt == attempt else {
                 return
             }
-            session.stop()
+            await session.stop()
             self.session = nil
             state = .failed(Self.message(for: error))
         }
     }
 
+    /// Asks the connected device to load `media`.
+    func load(_ media: CastClient.Media) async throws {
+        guard state == .connected,
+              let transportID = receiverTransportID,
+              let session else {
+            throw CastClient.ClientError.notConnected
+        }
+        try await session.loadMedia(media, transportID: transportID)
+    }
+
+    /// Stops the playing media and keeps the session open.
+    func stopPlayback() async {
+        guard state == .connected, let session else {
+            return
+        }
+        await session.stopMediaPlayback()
+    }
+
     /// Ends the session and returns to the idle state.
-    func disconnect() {
+    func disconnect() async {
         attempt += 1
-        stopSession()
+        await stopSession()
         connectedDevice = nil
         receiverTransportID = nil
         state = .idle
     }
 
-    private func stopSession() {
-        session?.stop()
+    private func stopSession() async {
+        if let session {
+            await session.stop()
+        }
         session = nil
     }
 
@@ -118,5 +156,11 @@ final class CastConnectionModel {
             return description
         }
         return error.localizedDescription
+    }
+}
+
+extension CastConnectionModel: CastMediaLoading {
+    var isConnected: Bool {
+        state == .connected
     }
 }

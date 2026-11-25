@@ -123,7 +123,7 @@ Acceptance criteria:
 * Compatibility assessment is covered by automated tests.
 * Unsupported formats are reported without crashing the application.
 Phase 3 — Cast Device Discovery
-Status: Implemented and on main; discovery verified against a registered Bonjour service, physical-device discovery still pending.
+Status: Complete.
 Objectives:
 * Discover Chromecast and Google TV devices on the local network.
 * Evaluate Bonjour/mDNS and other technically justified discovery mechanisms.
@@ -162,7 +162,7 @@ Acceptance criteria:
 * The server can be stopped without leaving resources running.
 * No public Internet exposure or cloud media transfer is required.
 Phase 5 — Cast Communication
-Status: Implemented and integrated into dev; the protocol, message handling and session state are covered by tests, real-device verification is still pending.
+Status: Complete.
 Objectives:
 * Evaluate the available Google Cast SDK and protocol implementation options.
 * Verify macOS compatibility, licensing, maintenance status, and technical constraints.
@@ -188,7 +188,7 @@ Acceptance criteria:
 * Protocol handling has appropriate tests.
 * The implementation has been verified against a real compatible device.
 Phase 6 — End-to-End Local Video Streaming
-Status: Not assessed.
+Status: Implemented, verified on a physical device and integrated into dev; promotion to main pending.
 Objectives:
 * Connect media selection, local HTTP serving, and Cast communication.
 * Start the HTTP server for the selected file.

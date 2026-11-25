@@ -9,6 +9,9 @@ final class FakeCastSession: CastSessionControlling {
     var result: Result<String, any Error>
     private(set) var startCount = 0
     private(set) var stopCount = 0
+    private(set) var loadedMedia: [CastClient.Media] = []
+    private(set) var stopMediaCount = 0
+    var loadError: (any Error)?
 
     init(result: Result<String, any Error> = .success("web-5")) {
         self.result = result
@@ -19,7 +22,18 @@ final class FakeCastSession: CastSessionControlling {
         return try result.get()
     }
 
-    func stop() {
+    func loadMedia(_ media: CastClient.Media, transportID: String) async throws {
+        if let loadError {
+            throw loadError
+        }
+        loadedMedia.append(media)
+    }
+
+    func stopMediaPlayback() async {
+        stopMediaCount += 1
+    }
+
+    func stop() async {
         stopCount += 1
     }
 }
@@ -90,26 +104,57 @@ struct CastConnectionModelTests {
         #expect(message.contains("cannot be reached"))
     }
 
+    @Test func connectingAgainToTheSameDeviceKeepsTheSession() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        let device = device()
+        await connection.connect(to: device)
+
+        await connection.connect(to: device)
+
+        #expect(session.startCount == 1)
+        #expect(session.stopCount == 0)
+        #expect(connection.state == .connected)
+    }
+
+    @Test func stopsPlaybackWithoutEndingTheSession() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+
+        await connection.stopPlayback()
+
+        #expect(session.stopMediaCount == 1)
+        #expect(session.stopCount == 0)
+        #expect(connection.state == .connected)
+        #expect(connection.connectedDevice != nil)
+    }
+
     @Test func stopsTheSessionWhenDisconnecting() async {
         let session = FakeCastSession()
         let connection = model(session: session)
         await connection.connect(to: device())
 
-        connection.disconnect()
+        await connection.disconnect()
 
         #expect(connection.state == .idle)
         #expect(connection.connectedDevice == nil)
         #expect(session.stopCount == 1)
     }
 
-    @Test func stopsThePreviousSessionBeforeConnectingAgain() async {
+    @Test func stopsThePreviousSessionBeforeConnectingToAnotherDevice() async {
         let first = FakeCastSession()
         let second = FakeCastSession()
         var sessions = [first, second]
         let connection = CastConnectionModel(makeSession: { _ in sessions.removeFirst() })
         await connection.connect(to: device())
+        let otherDevice = CastDevice(
+            id: "bedroom",
+            name: "Bedroom",
+            endpoint: .service(name: "Bedroom", type: "_googlecast._tcp", domain: "local.", interface: nil)
+        )
 
-        await connection.connect(to: device())
+        await connection.connect(to: otherDevice)
 
         #expect(first.stopCount == 1)
         #expect(second.startCount == 1)
