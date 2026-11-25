@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 /// A Chromecast or Google TV device found on the local network.
 ///
@@ -17,12 +18,21 @@ struct CastDevice: Identifiable, Equatable, Sendable {
     let modelName: String?
     /// Identifier the Cast protocol advertises in the TXT record, when available.
     let castIdentifier: String?
+    /// Bonjour endpoint used to open the connection, when discovery reported it.
+    let endpoint: NWEndpoint?
 
-    init(id: String, name: String, modelName: String? = nil, castIdentifier: String? = nil) {
+    init(
+        id: String,
+        name: String,
+        modelName: String? = nil,
+        castIdentifier: String? = nil,
+        endpoint: NWEndpoint? = nil
+    ) {
         self.id = id
         self.name = name
         self.modelName = modelName
         self.castIdentifier = castIdentifier
+        self.endpoint = endpoint
     }
 
     /// Builds a device from its Bonjour service name and TXT record.
@@ -48,10 +58,9 @@ struct CastDevice: Identifiable, Equatable, Sendable {
         guard id == other.id else {
             return other
         }
-        if castIdentifier != nil, other.castIdentifier == nil {
-            return self
-        }
-        return other
+        let selfIsFuller = (castIdentifier != nil && other.castIdentifier == nil)
+            || (endpoint != nil && other.endpoint == nil)
+        return selfIsFuller ? self : other
     }
 
     private static func nonEmpty(_ value: String?) -> String? {
