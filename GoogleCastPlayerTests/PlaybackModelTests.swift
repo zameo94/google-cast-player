@@ -141,7 +141,7 @@ struct PlaybackModelTests {
         #expect(server.stops >= 2)
     }
 
-    @Test func stoppingAlsoClosesTheSession() async throws {
+    @Test func stoppingPlaybackKeepsTheSessionOpen() async throws {
         let session = FakeCastSession()
         let connection = CastConnectionModel(makeSession: { _ in session })
         let device = CastDevice(
@@ -150,14 +150,17 @@ struct PlaybackModelTests {
             endpoint: .service(name: "Living Room", type: "_googlecast._tcp", domain: "local.", interface: nil)
         )
         await connection.connect(to: device)
-        let model = PlaybackModel(server: try successServer())
+        let server = try successServer()
+        let model = PlaybackModel(server: server)
         await model.play(file: file(), connection: connection)
 
-        await model.stopAndDisconnect(connection: connection)
+        await model.stopPlayback(connection: connection)
 
         #expect(model.state == .idle)
-        #expect(connection.state == .idle)
-        #expect(session.stopCount == 1)
+        #expect(connection.state == .connected)
+        #expect(session.stopMediaCount == 1)
+        #expect(session.stopCount == 0)
+        #expect(server.stops >= 2)
     }
 
     @Test func servesTheUrlItHandsToTheDevice() async throws {

@@ -240,6 +240,38 @@ struct CastClientTests {
         #expect(transport.isClosed)
     }
 
+    @Test func stopsOnlyTheMediaPlayback() async throws {
+        let (client, transport) = try await connectClient()
+        let launch = Task { try await client.launchDefaultReceiver() }
+        await transport.waitForSentFrames(2)
+        transport.push(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.receiver,
+                payload: #"{"type":"RECEIVER_STATUS","status":{"applications":[{"appId":"CC1AD845","transportId":"web-5","sessionId":"session-1"}]}}"#
+            )
+        )
+        _ = try await launch.value
+        client.handle(
+            CastMessage(
+                sourceID: "web-5",
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.media,
+                payload: #"{"type":"MEDIA_STATUS","status":[{"mediaSessionId":7,"playerState":"PLAYING"}]}"#
+            ).framed()
+        )
+
+        await client.stopMedia()
+
+        let sent = transport.sentMessages
+        let stopMedia = try #require(sent.first { $0.namespace == CastClient.Namespace.media })
+        #expect(stopMedia.payload.contains(#""mediaSessionId":7"#))
+        #expect(!sent.contains { $0.namespace == CastClient.Namespace.receiver && $0.payload.contains(#""type":"STOP""#) })
+        #expect(!sent.contains { $0.payload == #"{"type":"CLOSE"}"# })
+        #expect(!transport.isClosed)
+    }
+
     @Test func answersHeartbeatPings() async throws {
         let (client, transport) = try await connectClient()
         defer { client.disconnect() }

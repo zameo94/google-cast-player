@@ -10,6 +10,7 @@ final class FakeCastSession: CastSessionControlling {
     private(set) var startCount = 0
     private(set) var stopCount = 0
     private(set) var loadedMedia: [CastClient.Media] = []
+    private(set) var stopMediaCount = 0
     var loadError: (any Error)?
 
     init(result: Result<String, any Error> = .success("web-5")) {
@@ -26,6 +27,10 @@ final class FakeCastSession: CastSessionControlling {
             throw loadError
         }
         loadedMedia.append(media)
+    }
+
+    func stopMediaPlayback() async {
+        stopMediaCount += 1
     }
 
     func stop() async {
@@ -97,6 +102,19 @@ struct CastConnectionModelTests {
             return
         }
         #expect(message.contains("cannot be reached"))
+    }
+
+    @Test func stopsPlaybackWithoutEndingTheSession() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+
+        await connection.stopPlayback()
+
+        #expect(session.stopMediaCount == 1)
+        #expect(session.stopCount == 0)
+        #expect(connection.state == .connected)
+        #expect(connection.connectedDevice != nil)
     }
 
     @Test func stopsTheSessionWhenDisconnecting() async {

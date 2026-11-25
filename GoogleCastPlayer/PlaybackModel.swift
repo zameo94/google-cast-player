@@ -87,9 +87,9 @@ final class PlaybackModel {
         state = .idle
     }
 
-    /// Stops serving the file and closes the session with the device.
-    func stopAndDisconnect(connection: CastConnectionModel) async {
-        await connection.disconnect()
+    /// Stops the playing media and stops serving the file, keeping the session open.
+    func stopPlayback(connection: CastConnectionModel) async {
+        await connection.stopPlayback()
         stop()
     }
 

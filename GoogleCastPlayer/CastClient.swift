@@ -161,6 +161,26 @@ final class CastClient {
         return requestID
     }
 
+    /// Stops the media that is playing, and nothing else.
+    ///
+    /// The session stays open, so the device keeps its receiver screen and the sender
+    /// can load another media without reconnecting.
+    func stopMedia() async {
+        guard isConnected, let transportID = receiverTransportID, let mediaSessionID else {
+            return
+        }
+        try? await send(
+            CastMessage(
+                sourceID: Self.senderID,
+                destinationID: transportID,
+                namespace: Namespace.media,
+                payload: #"{"type":"STOP","requestId":\#(takeRequestID()),"mediaSessionId":\#(mediaSessionID)}"#
+            )
+        )
+        self.mediaSessionID = nil
+        playerState = nil
+    }
+
     /// Stops the media and the receiver application, then closes the transport.
     ///
     /// Closing the socket alone leaves the receiver playing, so the session is ended
@@ -168,16 +188,7 @@ final class CastClient {
     /// then the connection is closed. Commands are best effort, because the device may
     /// already be gone.
     func endSession() async {
-        if isConnected, let transportID = receiverTransportID, let mediaSessionID {
-            try? await send(
-                CastMessage(
-                    sourceID: Self.senderID,
-                    destinationID: transportID,
-                    namespace: Namespace.media,
-                    payload: #"{"type":"STOP","requestId":\#(takeRequestID()),"mediaSessionId":\#(mediaSessionID)}"#
-                )
-            )
-        }
+        await stopMedia()
         if isConnected {
             // A device that did not report a session id can still stop its current app.
             let payload = if let receiverSessionID {

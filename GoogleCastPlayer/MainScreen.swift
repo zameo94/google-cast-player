@@ -462,7 +462,7 @@ struct MainScreen: View {
                             .foregroundStyle(Color.green)
                         Spacer(minLength: 0)
                         Button("Stop") {
-                            Task { await playback.stopAndDisconnect(connection: connection) }
+                            Task { await playback.stopPlayback(connection: connection) }
                         }
                     }
                     Text(url.absoluteString)
@@ -480,7 +480,7 @@ struct MainScreen: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Button("Stop") {
-                        Task { await playback.stopAndDisconnect(connection: connection) }
+                        Task { await playback.stopPlayback(connection: connection) }
                     }
                 }
             }

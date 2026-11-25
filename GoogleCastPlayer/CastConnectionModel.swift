@@ -13,6 +13,8 @@ protocol CastSessionControlling: AnyObject {
     func start() async throws -> String
     /// Asks the running receiver to load `media`.
     func loadMedia(_ media: CastClient.Media, transportID: String) async throws
+    /// Stops the playing media and keeps the session open.
+    func stopMediaPlayback() async
     /// Ends the session: stops the media and the receiver, then closes.
     func stop() async
 }
@@ -25,6 +27,10 @@ extension CastClient: CastSessionControlling {
 
     func loadMedia(_ media: CastClient.Media, transportID: String) async throws {
         try await load(media, transportID: transportID)
+    }
+
+    func stopMediaPlayback() async {
+        await stopMedia()
     }
 
     func stop() async {
@@ -113,6 +119,14 @@ final class CastConnectionModel {
             throw CastClient.ClientError.notConnected
         }
         try await session.loadMedia(media, transportID: transportID)
+    }
+
+    /// Stops the playing media and keeps the session open.
+    func stopPlayback() async {
+        guard state == .connected, let session else {
+            return
+        }
+        await session.stopMediaPlayback()
     }
 
     /// Ends the session and returns to the idle state.
