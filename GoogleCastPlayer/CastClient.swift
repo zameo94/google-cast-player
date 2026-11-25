@@ -450,7 +450,10 @@ final class CastClient {
             receiverSessionID = nil
             mediaSessionID = nil
             mediaStatus = nil
-            onMediaStatus?(nil)
+            // The model still holds the last status, and it is the only place that can
+            // remember where the media stopped. Publishing a nil status here would clear
+            // that position before the stop is reported, so it is not published: the
+            // model clears its own copy when it handles the stop.
             if wasRunning {
                 onReceiverStopped?()
             }

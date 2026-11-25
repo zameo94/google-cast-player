@@ -8,7 +8,7 @@ Current feature branches: feature/release-stabilization (Phase 8), created from 
 Current working branch: dev; feature work happens on feature/<name> branches. feature/volume-control, created from dev at the maintainer's explicit request on 2026-11-26, is integrated into dev.
 Last verified commit: main is 565f112; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
-Last verified test run: 186 unit tests passed with xcodebuild on 2026-11-26 (see section 6).
+Last verified test run: 187 unit tests passed with xcodebuild on 2026-11-26 (see section 6).
 Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
 Last remote synchronization: main matches origin/main at 565f112. dev is ahead of origin/dev with the release candidate; the sleep-and-reconnect branch is local only; nothing has been pushed.
 
@@ -129,6 +129,8 @@ Phase 8 — stabilization and release candidate:
 * Verification of the block above: `pmset -g log` shows the cast assertion held for 1h31m09s with the display off and on battery on 2026-11-25, so the idle-sleep and App Nap protection is observed behaviour rather than a unit test only. The wake recovery, the loss recovery and the diagnostics are covered by unit tests; the real cast that ended after those 1h31 took the app down with it (the app released the assertion, the Mac slept 5 seconds later) and the cause is not recorded, because the app wrote nothing to the unified log at the time.
 * Volume control: the client reads the volume block of every receiver status (including the launch answer), sends `SET_VOLUME` with a request id and a level clamped to 0...1, the connection model exposes it and clears it when the session ends, and `PlaybackControls` shows a slider that sends on release and displays the reported level.
 * Mute toggle: the speaker button sends `SET_VOLUME` with only the `muted` field, so the device keeps its level, and the icon follows the state the device reports.
+* Resuming after the device stops its receiver (for example when the session is ended from the Google Home app) no longer restarts the video from the beginning: the client published an empty media status before reporting the stop, which erased the position the resume needs. It now reports the stop first and lets the model keep its own status.
+* 1 additional unit test (187 in total) that drives a real client and connection model through a scripted transport up to a receiver stop and asserts the kept position.
 * 13 additional unit tests (186 in total) covering the volume parsing, the command payloads, the clamping, the mute command, the refusals without a session, the model forwarding and the reset on disconnect.
 * 25 additional unit tests (173 in total) covering the power assertion lifetime, the interrupted cast, the resume path, the wake and loss recovery attempts, the assertion kept during recovery, the lost-connection reporting, the reconnect and the position carried into a resumed load.
 
@@ -160,7 +162,7 @@ Test:
 Verified on 2026-11-25 with Xcode 27.2:
 
 * Clean Debug build succeeded with no compiler warnings.
-* Test run succeeded: 148 tests in 16 suites on 2026-11-25, 173 in 17 suites with the sleep work, and 186 in 17 suites with volume and mute control, both on 2026-11-26. The Release configuration builds; tests run in Debug because they use `@testable`.
+* Test run succeeded: 148 tests in 16 suites on 2026-11-25, 173 in 17 suites with the sleep work, 186 in 17 suites with volume and mute control, and 187 with the receiver-stop position fix, all on 2026-11-26. The Release configuration builds; tests run in Debug because they use `@testable`.
 * The built application launches, keeps running and quits cleanly.
 * An offscreen render confirmed the layout of the video states. The new screen hosts a scroll view, which the offscreen renderer cannot draw, so the device section is a manual check.
 * Discovery was verified end to end against a Bonjour service registered on this machine: the browser reported the device once with its TXT record, and reported it removed when the service stopped. The test host itself cannot browse, because macOS gives it no local network access without a user decision.
@@ -242,6 +244,7 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-26 | feature/volume-control | Volume slider for the device, reported level and `SET_VOLUME` | 182 tests passed in Debug at that commit (186 after the mute toggle), Release build succeeded; gga rejected the UI reading a Cast type and it now maps to DeviceVolume | 828cd23 |
 | 2026-11-26 | feature/volume-control | Mute toggle and review cleanups in the client (unthrown error case, empty LOAD payload, event-based test wait) | 186 tests passed in Debug, Release build succeeded; gga passed | 8e7eea8 |
 | 2026-11-26 | dev | Integrated the volume-control branch, approved by the maintainer after testing the volume and mute controls | 186 tests re-run on dev after the merge | cb3c9b0 |
+| 2026-11-26 | fix/receiver-stop-position | Resume after a device-side receiver stop keeps its position; found by the maintainer testing the Google Home session removal | 187 tests passed in Debug (the new test failed before the fix), Release build succeeded | see section 1 |
 
 8. Blockers and Risks
 No active blocker.
