@@ -174,17 +174,23 @@ final class CastClient {
                     sourceID: Self.senderID,
                     destinationID: transportID,
                     namespace: Namespace.media,
-                    payload: #"{"type":"STOP","mediaSessionId":\#(mediaSessionID)}"#
+                    payload: #"{"type":"STOP","requestId":\#(takeRequestID()),"mediaSessionId":\#(mediaSessionID)}"#
                 )
             )
         }
-        if isConnected, let receiverSessionID {
+        if isConnected {
+            // A device that did not report a session id can still stop its current app.
+            let payload = if let receiverSessionID {
+                #"{"type":"STOP","requestId":\#(takeRequestID()),"sessionId":"\#(receiverSessionID)"}"#
+            } else {
+                #"{"type":"STOP","requestId":\#(takeRequestID())}"#
+            }
             try? await send(
                 CastMessage(
                     sourceID: Self.senderID,
                     destinationID: Self.receiverID,
                     namespace: Namespace.receiver,
-                    payload: #"{"type":"STOP","sessionId":"\#(receiverSessionID)"}"#
+                    payload: payload
                 )
             )
         }

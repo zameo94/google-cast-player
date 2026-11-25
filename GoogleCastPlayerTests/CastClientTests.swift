@@ -228,10 +228,12 @@ struct CastClientTests {
         #expect(stopMedia.destinationID == "web-5")
         #expect(stopMedia.payload.contains(#""type":"STOP""#))
         #expect(stopMedia.payload.contains(#""mediaSessionId":7"#))
+        #expect(stopMedia.payload.contains(#""requestId""#))
 
         let stopReceiver = try #require(sent.last { $0.namespace == CastClient.Namespace.receiver })
         #expect(stopReceiver.destinationID == CastClient.receiverID)
         #expect(stopReceiver.payload.contains("session-1"))
+        #expect(stopReceiver.payload.contains(#""requestId""#))
 
         let close = try #require(sent.last { $0.namespace == CastClient.Namespace.connection })
         #expect(close.payload == #"{"type":"CLOSE"}"#)
