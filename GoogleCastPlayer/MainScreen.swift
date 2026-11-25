@@ -253,15 +253,20 @@ struct MainScreen: View {
                 if devices.devices.isEmpty {
                     emptyDeviceList
                 } else {
-                    VStack(spacing: 2) {
+                    VStack(spacing: 8) {
                         ForEach(devices.devices) { device in
-                            deviceRow(device)
+                            deviceCard(device)
                         }
                     }
                 }
             case let .failed(message):
                 failedDeviceList(message)
             }
+
+            Text("Selecting a device only marks it. Connecting and playback are not implemented yet.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(18)
         .background(
@@ -300,19 +305,22 @@ struct MainScreen: View {
         }
     }
 
-    private func deviceRow(_ device: CastDevice) -> some View {
+    private func deviceCard(_ device: CastDevice) -> some View {
         let isSelected = devices.selectedDeviceID == device.id
         return Button {
             devices.selectDevice(id: device.id)
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            HStack(spacing: 12) {
+                Image(systemName: "tv")
+                    .font(.system(size: 18))
                     .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .frame(width: 24)
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(device.name)
-                        .font(.body)
+                        .font(.body.weight(isSelected ? .semibold : .regular))
+                        .foregroundStyle(.primary)
                     if let modelName = device.modelName {
                         Text(modelName)
                             .font(.caption)
@@ -321,11 +329,31 @@ struct MainScreen: View {
                 }
 
                 Spacer(minLength: 0)
+
+                if isSelected {
+                    Text("Selected")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color.accentColor)
+                }
             }
-            .contentShape(Rectangle())
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(
+                        isSelected ? Color.accentColor : Color.secondary.opacity(0.2),
+                        lineWidth: isSelected ? 2 : 1
+                    )
+            )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(device.name)
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
