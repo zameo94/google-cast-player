@@ -466,4 +466,78 @@ struct CastClientTests {
             )
         }
     }
+
+    @Test func loadsTheMediaAtTheGivenPosition() async throws {
+        let (client, transport) = try await connectClient()
+        let url = try #require(URL(string: "http://192.168.1.40:5000/media/abc"))
+        let media = CastClient.Media(contentURL: url, contentType: "video/mp4", currentTime: 42)
+
+        try await client.load(media, transportID: "web-5")
+
+        let loadMessage = try #require(transport.sentMessages.last)
+        let payload = try #require(
+            try JSONSerialization.jsonObject(with: Data(loadMessage.payload.utf8)) as? [String: Any]
+        )
+        #expect(payload["currentTime"] as? TimeInterval == 42)
+    }
+
+    @Test func reportsATransportThatEnds() async throws {
+        let (client, transport) = try await connectClient(heartbeat: .seconds(30))
+        var didEnd = false
+        client.onConnectionEnded = { didEnd = true }
+
+        transport.close()
+
+        await waitForCallback { didEnd }
+        #expect(didEnd)
+    }
+
+    @Test func reportsADeviceThatStoppedAnswering() async throws {
+        let transport = ScriptedCastTransport()
+        let client = CastClient(
+            transport: transport,
+            heartbeatInterval: .zero,
+            heartbeatTimeout: .zero
+        )
+        try await client.connect()
+        defer { client.disconnect() }
+        var didEnd = false
+        client.onConnectionEnded = { didEnd = true }
+
+        await waitForCallback { didEnd }
+        #expect(didEnd)
+    }
+
+    @Test func keepsTheSessionWhileTheDeviceAnswers() async throws {
+        let transport = ScriptedCastTransport()
+        let client = CastClient(
+            transport: transport,
+            heartbeatInterval: .zero,
+            heartbeatTimeout: .seconds(60)
+        )
+        try await client.connect()
+        defer { client.disconnect() }
+        var didEnd = false
+        client.onConnectionEnded = { didEnd = true }
+
+        transport.push(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.heartbeat,
+                payload: #"{"type":"PONG"}"#
+            )
+        )
+        await transport.waitForSentFrames(4)
+
+        #expect(!didEnd)
+    }
+
+    /// Lets the main actor run the client's background work until `condition` holds,
+    /// without waiting on wall-clock time.
+    private func waitForCallback(_ condition: @MainActor () -> Bool) async {
+        for _ in 0..<1000 where !condition() {
+            await Task.yield()
+        }
+    }
 }

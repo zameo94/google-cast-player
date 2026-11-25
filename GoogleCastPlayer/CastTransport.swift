@@ -48,12 +48,16 @@ final class TLSCastTransport: CastTransporting, @unchecked Sendable {
         let attempt = ConnectionAttempt()
         try await withCheckedThrowingContinuation { continuation in
             attempt.continuation = continuation
-            connection.stateUpdateHandler = { state in
+            connection.stateUpdateHandler = { [weak self] state in
                 switch state {
                 case .ready:
                     attempt.finish(.success(()))
                 case let .failed(error):
                     attempt.finish(.failure(error))
+                    // A connection that fails after it was ready, for example when the
+                    // Mac sleeps, never recovers: end the transport so the client sees
+                    // an ended stream instead of a socket that waits forever.
+                    self?.closeAfterFailure()
                 case let .waiting(error):
                     attempt.finish(.failure(error))
                 default:
@@ -107,6 +111,15 @@ final class TLSCastTransport: CastTransporting, @unchecked Sendable {
             self.waiting?.resume(returning: nil)
             self.waiting = nil
         }
+    }
+
+    /// Closes the transport after the connection itself failed; ignores the failures
+    /// that belong to an attempt that has not been stored yet.
+    private func closeAfterFailure() {
+        guard connection != nil else {
+            return
+        }
+        close()
     }
 
     private func startReceiving() {

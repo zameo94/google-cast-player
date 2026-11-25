@@ -42,12 +42,21 @@ final class CastClient {
         /// `BUFFERED` for a progressive HTTP source.
         let streamType: String
         let title: String?
+        /// Position, in seconds, the receiver starts from.
+        let currentTime: TimeInterval
 
-        init(contentURL: URL, contentType: String, streamType: String = "BUFFERED", title: String? = nil) {
+        init(
+            contentURL: URL,
+            contentType: String,
+            streamType: String = "BUFFERED",
+            title: String? = nil,
+            currentTime: TimeInterval = 0
+        ) {
             self.contentURL = contentURL
             self.contentType = contentType
             self.streamType = streamType
             self.title = title
+            self.currentTime = currentTime
         }
     }
 
@@ -93,7 +102,12 @@ final class CastClient {
     private let transport: any CastTransporting
     private let launchTimeout: Duration
     private let heartbeatInterval: Duration
+    private let heartbeatTimeout: Duration
     private let sleeper: any Sleeping
+
+    private let clock = ContinuousClock()
+    /// Instant of the last bytes received, used to notice a session that stopped answering.
+    private var lastInboundAt: ContinuousClock.Instant?
 
     private var receiveTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
@@ -108,6 +122,8 @@ final class CastClient {
     var onMediaStatus: ((MediaStatus?) -> Void)?
     /// Called when the device reports that no receiver application is running.
     var onReceiverStopped: (() -> Void)?
+    /// Called once when the transport stops carrying the session.
+    var onConnectionEnded: (() -> Void)?
     private var receiverBuffer = Data()
     private var nextRequestID = 1
     private var isConnected = false
@@ -116,11 +132,13 @@ final class CastClient {
         transport: any CastTransporting,
         launchTimeout: Duration = .seconds(10),
         heartbeatInterval: Duration = .seconds(5),
+        heartbeatTimeout: Duration = .seconds(45),
         sleeper: any Sleeping = TaskSleeper()
     ) {
         self.transport = transport
         self.launchTimeout = launchTimeout
         self.heartbeatInterval = heartbeatInterval
+        self.heartbeatTimeout = heartbeatTimeout
         self.sleeper = sleeper
     }
 
@@ -128,6 +146,7 @@ final class CastClient {
     func connect() async throws {
         try await transport.connect()
         isConnected = true
+        lastInboundAt = clock.now
         try await send(
             CastMessage(
                 sourceID: Self.senderID,
@@ -236,14 +255,20 @@ final class CastClient {
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
             return
         }
-        try? await send(
-            CastMessage(
-                sourceID: Self.senderID,
-                destinationID: transportID,
-                namespace: Namespace.media,
-                payload: String(decoding: data, as: UTF8.self)
+        do {
+            try await send(
+                CastMessage(
+                    sourceID: Self.senderID,
+                    destinationID: transportID,
+                    namespace: Namespace.media,
+                    payload: String(decoding: data, as: UTF8.self)
+                )
             )
-        )
+        } catch {
+            // A command that cannot leave the Mac means the session is gone; reporting it
+            // is better than showing a state the device never received.
+            connectionEnded()
+        }
     }
 
     /// Stops the media that is playing, and nothing else.
@@ -313,6 +338,7 @@ final class CastClient {
     ///
     /// Kept internal so tests can drive the protocol without a socket.
     func handle(_ data: Data) {
+        lastInboundAt = clock.now
         receiverBuffer.append(data)
         let (messages, remainder) = CastMessage.frames(in: receiverBuffer)
         receiverBuffer = remainder
@@ -346,7 +372,11 @@ final class CastClient {
             payload: #"{"type":"PONG"}"#
         )
         Task { @MainActor in
-            try? await self.send(reply)
+            do {
+                try await self.send(reply)
+            } catch {
+                self.connectionEnded()
+            }
         }
     }
 
@@ -417,20 +447,36 @@ final class CastClient {
 
     private func startHeartbeat() {
         let interval = heartbeatInterval
+        let timeout = heartbeatTimeout
         heartbeatTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: interval)
-                guard let self, !Task.isCancelled else {
+                do {
+                    try await Task.sleep(for: interval)
+                } catch {
                     return
                 }
-                try? await self.send(
-                    CastMessage(
-                        sourceID: Self.senderID,
-                        destinationID: Self.receiverID,
-                        namespace: Namespace.heartbeat,
-                        payload: #"{"type":"PING"}"#
+                guard let self, !Task.isCancelled, self.isConnected else {
+                    return
+                }
+                // A device that stopped answering, for example because the Mac slept,
+                // leaves a socket that looks open; silence is the only signal left.
+                if let lastInboundAt = self.lastInboundAt, self.clock.now - lastInboundAt > timeout {
+                    self.connectionEnded()
+                    return
+                }
+                do {
+                    try await self.send(
+                        CastMessage(
+                            sourceID: Self.senderID,
+                            destinationID: Self.receiverID,
+                            namespace: Namespace.heartbeat,
+                            payload: #"{"type":"PING"}"#
+                        )
                     )
-                )
+                } catch {
+                    self.connectionEnded()
+                    return
+                }
             }
         }
     }
@@ -454,6 +500,8 @@ final class CastClient {
         }
         isConnected = false
         finishLaunch(.failure(ClientError.notConnected))
+        transport.close()
+        onConnectionEnded?()
     }
 
     // MARK: - Helpers
@@ -494,7 +542,7 @@ final class CastClient {
             "requestId": requestID,
             "media": mediaObject,
             "autoplay": true,
-            "currentTime": 0,
+            "currentTime": media.currentTime,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
             return "{}"
