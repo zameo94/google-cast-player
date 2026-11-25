@@ -1,0 +1,344 @@
+import Foundation
+
+/// Drives the Cast V2 handshake over a transport.
+///
+/// The client speaks the parts of the protocol the app needs: the connection namespace,
+/// the heartbeat, launching the default media receiver, and sending a load command. It
+/// does not manage playback state; that belongs to the playback phase.
+@MainActor
+final class CastClient {
+    enum ClientError: Error, Equatable, LocalizedError {
+        case notConnected
+        case receiverLaunchTimedOut
+        case receiverRejected
+
+        var errorDescription: String? {
+            switch self {
+            case .notConnected:
+                return "The device is not connected."
+            case .receiverLaunchTimedOut:
+                return "The device did not start the receiver in time."
+            case .receiverRejected:
+                return "The device refused to start the receiver."
+            }
+        }
+    }
+
+    /// Media the receiver should load.
+    struct Media: Equatable, Sendable {
+        let contentURL: URL
+        let contentType: String
+        /// `BUFFERED` for a progressive HTTP source.
+        let streamType: String
+        let title: String?
+
+        init(contentURL: URL, contentType: String, streamType: String = "BUFFERED", title: String? = nil) {
+            self.contentURL = contentURL
+            self.contentType = contentType
+            self.streamType = streamType
+            self.title = title
+        }
+    }
+
+    enum Namespace {
+        static let connection = "urn:x-cast:com.google.cast.tp.connection"
+        static let heartbeat = "urn:x-cast:com.google.cast.tp.heartbeat"
+        static let receiver = "urn:x-cast:com.google.cast.receiver"
+        static let media = "urn:x-cast:com.google.cast.media"
+    }
+
+    static let senderID = "sender-0"
+    static let receiverID = "receiver-0"
+    /// The Default Media Receiver every Cast device can run without a custom app.
+    static let defaultMediaReceiverAppID = "CC1AD845"
+
+    private struct PendingLaunch {
+        let appID: String
+        let continuation: CheckedContinuation<String, any Error>
+    }
+
+    private let transport: any CastTransporting
+    private let launchTimeout: Duration
+    private let heartbeatInterval: Duration
+
+    private var receiveTask: Task<Void, Never>?
+    private var heartbeatTask: Task<Void, Never>?
+    private var launchTimeoutTask: Task<Void, Never>?
+    private var pendingLaunch: PendingLaunch?
+    private var receiverBuffer = Data()
+    private var nextRequestID = 1
+    private var isConnected = false
+
+    init(
+        transport: any CastTransporting,
+        launchTimeout: Duration = .seconds(10),
+        heartbeatInterval: Duration = .seconds(5)
+    ) {
+        self.transport = transport
+        self.launchTimeout = launchTimeout
+        self.heartbeatInterval = heartbeatInterval
+    }
+
+    /// Opens the transport and announces the sender to the receiver.
+    func connect() async throws {
+        try await transport.connect()
+        isConnected = true
+        try await send(
+            CastMessage(
+                sourceID: Self.senderID,
+                destinationID: Self.receiverID,
+                namespace: Namespace.connection,
+                payload: #"{"type":"CONNECT"}"#
+            )
+        )
+        startReceiving()
+        startHeartbeat()
+    }
+
+    /// Launches the Default Media Receiver and returns its transport id.
+    func launchDefaultReceiver() async throws -> String {
+        try await launch(appID: Self.defaultMediaReceiverAppID)
+    }
+
+    /// Launches a receiver application and returns its transport id.
+    func launch(appID: String) async throws -> String {
+        guard isConnected else {
+            throw ClientError.notConnected
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            pendingLaunch = PendingLaunch(appID: appID, continuation: continuation)
+            let requestID = takeRequestID()
+            let payload = #"{"type":"LAUNCH","appId":"\#(appID)","requestId":\#(requestID)}"#
+            let message = CastMessage(
+                sourceID: Self.senderID,
+                destinationID: Self.receiverID,
+                namespace: Namespace.receiver,
+                payload: payload
+            )
+            Task { @MainActor in
+                do {
+                    try await self.send(message)
+                    self.scheduleLaunchTimeout()
+                } catch {
+                    self.finishLaunch(.failure(error))
+                }
+            }
+        }
+    }
+
+    /// Connects to a running receiver application and sends a load command.
+    ///
+    /// - Returns: The request id the receiver answers with.
+    @discardableResult
+    func load(_ media: Media, transportID: String) async throws -> Int {
+        guard isConnected else {
+            throw ClientError.notConnected
+        }
+        try await send(
+            CastMessage(
+                sourceID: Self.senderID,
+                destinationID: transportID,
+                namespace: Namespace.connection,
+                payload: #"{"type":"CONNECT"}"#
+            )
+        )
+
+        let requestID = takeRequestID()
+        try await send(
+            CastMessage(
+                sourceID: Self.senderID,
+                destinationID: transportID,
+                namespace: Namespace.media,
+                payload: Self.loadPayload(media: media, requestID: requestID)
+            )
+        )
+        return requestID
+    }
+
+    /// Closes the transport and stops the background work.
+    func disconnect() {
+        isConnected = false
+        receiveTask?.cancel()
+        heartbeatTask?.cancel()
+        launchTimeoutTask?.cancel()
+        receiveTask = nil
+        heartbeatTask = nil
+        launchTimeoutTask = nil
+        finishLaunch(.failure(ClientError.notConnected))
+        transport.close()
+    }
+
+    // MARK: - Incoming messages
+
+    /// Applies bytes received from the device.
+    ///
+    /// Kept internal so tests can drive the protocol without a socket.
+    func handle(_ data: Data) {
+        receiverBuffer.append(data)
+        let (messages, remainder) = CastMessage.frames(in: receiverBuffer)
+        receiverBuffer = remainder
+
+        for message in messages {
+            handle(message)
+        }
+    }
+
+    private func handle(_ message: CastMessage) {
+        switch message.namespace {
+        case Namespace.heartbeat:
+            handleHeartbeat(message)
+        case Namespace.receiver:
+            handleReceiver(message)
+        default:
+            break
+        }
+    }
+
+    private func handleHeartbeat(_ message: CastMessage) {
+        guard Self.payloadType(of: message) == "PING" else {
+            return
+        }
+        let reply = CastMessage(
+            sourceID: Self.senderID,
+            destinationID: message.sourceID,
+            namespace: Namespace.heartbeat,
+            payload: #"{"type":"PONG"}"#
+        )
+        Task { @MainActor in
+            try? await self.send(reply)
+        }
+    }
+
+    private func handleReceiver(_ message: CastMessage) {
+        guard let pendingLaunch,
+              let transportID = Self.transportID(
+                  in: message.payload,
+                  forAppID: pendingLaunch.appID
+              ) else {
+            return
+        }
+        finishLaunch(.success(transportID))
+    }
+
+    // MARK: - Background work
+
+    private func startReceiving() {
+        let transport = transport
+        receiveTask = Task { [weak self] in
+            while let chunk = await transport.receive() {
+                guard let self, !Task.isCancelled else {
+                    return
+                }
+                self.handle(chunk)
+            }
+            self?.connectionEnded()
+        }
+    }
+
+    private func startHeartbeat() {
+        let interval = heartbeatInterval
+        heartbeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard let self, !Task.isCancelled else {
+                    return
+                }
+                try? await self.send(
+                    CastMessage(
+                        sourceID: Self.senderID,
+                        destinationID: Self.receiverID,
+                        namespace: Namespace.heartbeat,
+                        payload: #"{"type":"PING"}"#
+                    )
+                )
+            }
+        }
+    }
+
+    private func scheduleLaunchTimeout() {
+        let timeout = launchTimeout
+        launchTimeoutTask?.cancel()
+        launchTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            guard let self, !Task.isCancelled else {
+                return
+            }
+            self.finishLaunch(.failure(ClientError.receiverLaunchTimedOut))
+        }
+    }
+
+    private func connectionEnded() {
+        guard isConnected else {
+            return
+        }
+        isConnected = false
+        finishLaunch(.failure(ClientError.notConnected))
+    }
+
+    // MARK: - Helpers
+
+    private func send(_ message: CastMessage) async throws {
+        guard isConnected else {
+            throw ClientError.notConnected
+        }
+        try await transport.send(message.framed())
+    }
+
+    private func finishLaunch(_ result: Result<String, any Error>) {
+        guard let pendingLaunch else {
+            return
+        }
+        self.pendingLaunch = nil
+        launchTimeoutTask?.cancel()
+        launchTimeoutTask = nil
+        pendingLaunch.continuation.resume(with: result)
+    }
+
+    private func takeRequestID() -> Int {
+        defer { nextRequestID += 1 }
+        return nextRequestID
+    }
+
+    private static func loadPayload(media: Media, requestID: Int) -> String {
+        var mediaObject: [String: Any] = [
+            "contentId": media.contentURL.absoluteString,
+            "streamType": media.streamType,
+            "contentType": media.contentType,
+        ]
+        if let title = media.title {
+            mediaObject["metadata"] = ["type": 0, "title": title]
+        }
+        let payload: [String: Any] = [
+            "type": "LOAD",
+            "requestId": requestID,
+            "media": mediaObject,
+            "autoplay": true,
+            "currentTime": 0,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
+            return "{}"
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Reads the `type` field of a UTF-8 JSON payload.
+    private static func payloadType(of message: CastMessage) -> String? {
+        guard let data = message.payload.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return object["type"] as? String
+    }
+
+    /// Finds the transport id of a running application in a receiver-status payload.
+    private static func transportID(in payload: String, forAppID appID: String) -> String? {
+        guard let data = payload.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let status = object["status"] as? [String: Any],
+              let applications = status["applications"] as? [[String: Any]] else {
+            return nil
+        }
+        return applications.first { $0["appId"] as? String == appID }?["transportId"] as? String
+    }
+}

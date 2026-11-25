@@ -77,7 +77,14 @@ final class BonjourCastDeviceBrowser: CastDeviceBrowsing {
         if case let .bonjour(record) = result.metadata {
             txtRecord = record.dictionary
         }
-        return CastDevice(serviceName: serviceName, txtRecord: txtRecord)
+        let device = CastDevice(serviceName: serviceName, txtRecord: txtRecord)
+        return CastDevice(
+            id: device.id,
+            name: device.name,
+            modelName: device.modelName,
+            castIdentifier: device.castIdentifier,
+            endpoint: result.endpoint
+        )
     }
 
     private static func isLocalNetworkBlocked(_ error: NWError) -> Bool {
