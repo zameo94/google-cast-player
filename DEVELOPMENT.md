@@ -4,8 +4,8 @@ Google Cast Player — Development
 Overall status: Phase 0 to Phase 7 on main and verified on a physical device; the Phase 8 release candidate is integrated into dev, with the release decision pending.
 Current development phase: Phase 8 — Stabilization and MVP Release (release candidate 1.0.0 integrated into dev; release approval pending).
 Current milestone: The release decision: signing, notarization and version tagging.
-Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev; feature/sleep-and-reconnect (Phase 8), created from main at 565f112 and merged into dev.
-Current working branch: feature/volume-control, created from dev at the maintainer's explicit request on 2026-11-26. AGENTS.md prescribes main as the source of every feature branch; the maintainer chose dev for this one, so the branch carries the sleep-and-reconnect work that is in dev and not yet in main.
+Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev; feature/sleep-and-reconnect (Phase 8), created from main at 565f112 and merged into dev; feature/volume-control (Phase 8), created from dev at 2026-11-26 and merged into dev.
+Current working branch: dev; feature work happens on feature/<name> branches. feature/volume-control, created from dev at the maintainer's explicit request on 2026-11-26, is integrated into dev.
 Last verified commit: main is 565f112; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
 Last verified test run: 186 unit tests passed with xcodebuild on 2026-11-26 (see section 6).
@@ -241,6 +241,7 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-26 | dev | Integrated the sleep-and-reconnect branch, approved by the maintainer | 173 tests re-run on dev after the merge | 588d2d9 |
 | 2026-11-26 | feature/volume-control | Volume slider for the device, reported level and `SET_VOLUME` | 182 tests passed in Debug at that commit (186 after the mute toggle), Release build succeeded; gga rejected the UI reading a Cast type and it now maps to DeviceVolume | 828cd23 |
 | 2026-11-26 | feature/volume-control | Mute toggle and review cleanups in the client (unthrown error case, empty LOAD payload, event-based test wait) | 186 tests passed in Debug, Release build succeeded; gga passed | 8e7eea8 |
+| 2026-11-26 | dev | Integrated the volume-control branch, approved by the maintainer after testing the volume and mute controls | 186 tests re-run on dev after the merge | cb3c9b0 |
 
 8. Blockers and Risks
 No active blocker.
