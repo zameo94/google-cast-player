@@ -234,7 +234,7 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-25 | feature/sleep-and-reconnect | Lost connections are reported, the session keeps the position and a reconnect opens a new session | 170 tests passed in Debug; gga rejected a polling test helper and a swallowed send error, both fixed | e3dfabb |
 | 2026-11-25 | feature/sleep-and-reconnect | Cast power assertion, interrupted cast state, wake watcher and automatic resume at the last position | 170 tests passed in Debug, Release build succeeded; gga passed | d087878 |
 | 2026-11-25 | feature/sleep-and-reconnect | Transport stores its connection before `connect()` returns | 170 tests passed in Debug; gga passed | 88fcdc6 |
-| 2026-11-26 | feature/sleep-and-reconnect | Unified-log diagnostics, the wake lock kept through recovery and recovery that starts without a wake | 173 tests passed in Debug, Release build succeeded; found after a real 1h31 cast ended and the Mac slept in 5 seconds | see section 1 |
+| 2026-11-26 | feature/sleep-and-reconnect | Unified-log diagnostics, the wake lock kept through recovery and recovery that starts without a wake | 173 tests passed in Debug, Release build succeeded; found after a real 1h31 cast ended and the Mac slept in 5 seconds | c335b94 |
 
 8. Blockers and Risks
 No active blocker.
