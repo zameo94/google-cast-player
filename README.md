@@ -11,13 +11,15 @@ uploaded to a cloud service, and no external media server is involved.
 Development status
 ------------------
 
-The project is in **Phase 3 — Cast device discovery**. The application imports a
+The project is in **Phase 4 — local HTTP media server**. The application imports a
 local video file, reports its name, container format, size, duration, resolution
 and codecs, judges the format against the playback profile the app targets (MP4,
 H.264, AAC), and lists the Chromecast and Google TV devices it finds on the local
-network so one can be selected. That verdict describes the file, not a device, and
-it does not promise playback. Media serving, Cast communication and playback are
-not implemented yet; see ROADMAP.md for the phased plan and acceptance criteria.
+network so one can be selected. A local HTTP server can serve the selected file
+with byte-range support; it is not wired into the window yet. That verdict
+describes the file, not a device, and it does not promise playback. Cast
+communication and playback are not implemented yet; see ROADMAP.md for the phased
+plan and acceptance criteria.
 
 Requirements
 ------------
@@ -74,6 +76,9 @@ Architecture
 * `CastDevice` describes a device found on the network; `BonjourCastDeviceBrowser`
   finds `_googlecast._tcp` services and reports appearances, changes and disappearances.
   Discovery never connects to a device.
+* `LocalMediaServer` serves one file over HTTP with byte ranges, behind an
+  unguessable path; `HTTPRequest` and `HTTPByteRange` hold the parsing rules and
+  `LocalNetworkAddress` resolves the address a receiver can reach.
 * `MainScreen` renders both models and forwards user actions. It contains no
   validation, extraction, networking or protocol code.
 

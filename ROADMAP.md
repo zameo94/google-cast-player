@@ -123,7 +123,7 @@ Acceptance criteria:
 * Compatibility assessment is covered by automated tests.
 * Unsupported formats are reported without crashing the application.
 Phase 3 — Cast Device Discovery
-Status: Implemented and integrated into dev; discovery verified against a registered Bonjour service, real-device discovery pending; promotion to main pending.
+Status: Implemented and on main; discovery verified against a registered Bonjour service, physical-device discovery still pending.
 Objectives:
 * Discover Chromecast and Google TV devices on the local network.
 * Evaluate Bonjour/mDNS and other technically justified discovery mechanisms.
@@ -138,7 +138,7 @@ Acceptance criteria:
 * Network and permission errors are understandable.
 * Discovery logic is separated from the UI and covered by appropriate tests.
 Phase 4 — Local HTTP Media Server
-Status: Not assessed.
+Status: Implemented, verified and integrated into dev; promotion to main pending.
 Objectives:
 * Implement the integrated local HTTP server.
 * Bind the server to an appropriate local network interface.
