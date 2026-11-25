@@ -158,7 +158,8 @@ position the device reported. If that attempt fails, the playback section offers
 and Stop instead of pretending the session is still running.
 
 A session that drops while the Mac is awake is recovered the same way: the application
-keeps the Mac awake, reconnects and reloads the file where the device stopped, retrying
+keeps the Mac awake, reconnects and reloads the file three seconds before the point where
+the device stopped, so the resume does not land in the middle of a scene, retrying
 three times. It releases the wake lock only when recovery gives up, so a short network
 loss cannot put the Mac to sleep before the recovery had a chance to run.
 
