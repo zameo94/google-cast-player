@@ -244,7 +244,7 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-26 | feature/volume-control | Volume slider for the device, reported level and `SET_VOLUME` | 182 tests passed in Debug at that commit (186 after the mute toggle), Release build succeeded; gga rejected the UI reading a Cast type and it now maps to DeviceVolume | 828cd23 |
 | 2026-11-26 | feature/volume-control | Mute toggle and review cleanups in the client (unthrown error case, empty LOAD payload, event-based test wait) | 186 tests passed in Debug, Release build succeeded; gga passed | 8e7eea8 |
 | 2026-11-26 | dev | Integrated the volume-control branch, approved by the maintainer after testing the volume and mute controls | 186 tests re-run on dev after the merge | cb3c9b0 |
-| 2026-11-26 | fix/receiver-stop-position | Resume after a device-side receiver stop keeps its position; found by the maintainer testing the Google Home session removal | 187 tests passed in Debug (the new test failed before the fix), Release build succeeded | see section 1 |
+| 2026-11-26 | fix/receiver-stop-position | Resume after a device-side receiver stop keeps its position; found by the maintainer testing the Google Home session removal | 187 tests passed in Debug (the new test failed before the fix), Release build succeeded | 92fea8d |
 
 8. Blockers and Risks
 No active blocker.
