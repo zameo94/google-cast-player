@@ -410,8 +410,6 @@ struct MainScreen: View {
             EmptyView()
         case .connecting:
             HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
                 Text("Connecting\u{2026}")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -421,15 +419,7 @@ struct MainScreen: View {
                 }
             }
         case .connected:
-            HStack(spacing: 8) {
-                Label("Connected", systemImage: "checkmark.circle.fill")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(Color.green)
-                Spacer(minLength: 0)
-                Button("Disconnect") {
-                    Task { await connection.disconnect() }
-                }
-            }
+            EmptyView()
         case let .failed(message):
             VStack(alignment: .leading, spacing: 6) {
                 Label("Not connected", systemImage: "xmark.circle.fill")
