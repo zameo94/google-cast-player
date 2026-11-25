@@ -141,6 +141,49 @@ Security and privacy
   is what Cast devices present; trust comes from the local network, not from a
   certificate chain.
 
+Sleep, screen lock and the display
+----------------------------------
+
+While a cast is running the application holds a macOS activity assertion: the Mac is kept
+out of App Nap, which otherwise coalesces timers and throttles network I/O once the window
+is inactive, and out of idle sleep. Locking the screen, letting the display turn off, or
+leaving the window in the background therefore does not end the cast: the media server and
+the connection to the device stay alive.
+
+Closing the lid is different. macOS always puts the Mac to sleep on lid close and no
+application can override that, so the device stops when the Mac sleeps. When the Mac
+wakes, the application reconnects to the device and resumes the video from the last
+position the device reported. If that attempt fails, the playback section offers Resume
+and Stop instead of pretending the session is still running.
+
+A session that drops while the Mac is awake is recovered the same way: the application
+keeps the Mac awake, reconnects and reloads the file where the device stopped, retrying
+three times. It releases the wake lock only when recovery gives up, so a short network
+loss cannot put the Mac to sleep before the recovery had a chance to run.
+
+Every step of that lifecycle is written to the unified log, which is where to look when a
+session ends hours later:
+
+    log show --last 2h --info --predicate 'subsystem == "io.github.zameo94.GoogleCastPlayer"'
+
+`--info` is needed because those messages are informational; without it only errors and
+faults appear. The same entries can be watched live in Console.app by filtering on the
+subsystem, or with `log stream --level info --predicate 'subsystem == "io.github.zameo94.GoogleCastPlayer"'.
+
+The assertion can be checked from a terminal while a cast is running:
+
+    pmset -g assertions
+
+Two system-level options keep the Mac awake with the lid closed. Both are decisions the
+user makes outside the application, and neither is required while the lid is open:
+
+* Clamshell mode: connect a charger and an external display; macOS then keeps running with
+  the lid closed.
+* A system-wide sleep override, which also applies to every other application and costs
+  battery life and heat:
+
+      sudo pmset -a disablesleep 1    # revert with: sudo pmset -a disablesleep 0
+
 Known limitations
 -----------------
 
@@ -150,8 +193,8 @@ Known limitations
   promise playback on a specific device.
 * The displayed playback position is interpolated between status updates and can drift
   by about a second.
-* Pause, seek and reported playback state are covered by tests but were not exercised on
-  a physical device at the time this section was written.
+* While the Mac is asleep, for example with the lid closed, the cast stops. It resumes
+  automatically after the wake, but the video does not keep playing through the sleep.
 
 Contribution workflow
 ---------------------

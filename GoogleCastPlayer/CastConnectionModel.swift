@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Network
 
 /// A Cast session that can be started and stopped, as the connection state needs it.
@@ -15,6 +16,8 @@ protocol CastSessionControlling: AnyObject {
     var onMediaStatusChange: ((CastClient.MediaStatus?) -> Void)? { get set }
     /// Called when the device reports that its receiver stopped.
     var onReceiverStopped: (() -> Void)? { get set }
+    /// Called when the transport stops carrying the session, for example after a sleep.
+    var onConnectionEnded: (() -> Void)? { get set }
     /// Asks the running receiver to load `media`.
     func loadMedia(_ media: CastClient.Media, transportID: String) async throws
     /// Resumes the paused media.
@@ -87,12 +90,15 @@ final class CastConnectionModel {
     private(set) var state: State = .idle
     /// Device the current state refers to.
     private(set) var connectedDevice: CastDevice?
-    /// Receiver transport id, kept for the media load of the next phase.
+    /// Receiver transport id the load and playback commands are addressed to.
     private(set) var receiverTransportID: String?
     /// Last media status the receiver reported.
     private(set) var mediaStatus: CastClient.MediaStatus?
     /// When `mediaStatus` was received, used to advance the displayed position.
     private(set) var mediaStatusReceivedAt: Date?
+    /// Position, in seconds, the cast reached, kept after the status is cleared so an
+    /// interrupted cast can be resumed where it stopped.
+    private(set) var resumePosition: TimeInterval?
 
     /// Playback state for the interface, in app types.
     var playbackSnapshot: PlaybackSnapshot? {
@@ -114,6 +120,21 @@ final class CastConnectionModel {
         )
     }
 
+    /// Position the media reached, including the time elapsed since the last report.
+    var livePosition: TimeInterval? {
+        guard let mediaStatus, let position = mediaStatus.position else {
+            return nil
+        }
+        var value = position
+        if mediaStatus.playerState == .playing, let mediaStatusReceivedAt {
+            value += Date().timeIntervalSince(mediaStatusReceivedAt)
+        }
+        if let duration = mediaStatus.duration, value > duration {
+            value = duration
+        }
+        return value
+    }
+
     private let makeSession: (NWEndpoint) -> any CastSessionControlling
     private var session: (any CastSessionControlling)?
     private var attempt = 0
@@ -131,7 +152,23 @@ final class CastConnectionModel {
     /// Connecting to the device that is already connected is a no-op, so a stray tap
     /// never tears down a running session.
     func connect(to device: CastDevice) async {
-        if state == .connected, connectedDevice?.id == device.id {
+        await connect(to: device, force: false)
+    }
+
+    /// Opens a new session with the device of the current session, even when the model
+    /// still believes it is connected.
+    ///
+    /// Used after the transport died, for example when the Mac woke from sleep: the old
+    /// socket cannot be reused, so a fresh session carries the cast again.
+    func reconnect() async {
+        guard let device = connectedDevice else {
+            return
+        }
+        await connect(to: device, force: true)
+    }
+
+    private func connect(to device: CastDevice, force: Bool) async {
+        if !force, state == .connected, connectedDevice?.id == device.id {
             return
         }
         guard let endpoint = device.endpoint else {
@@ -143,17 +180,24 @@ final class CastConnectionModel {
         await stopSession()
         attempt += 1
         let currentAttempt = attempt
+        // A position belongs to the device and file it came from; a different device
+        // starts from the beginning.
+        if connectedDevice?.id != device.id {
+            resumePosition = nil
+        }
         connectedDevice = device
         receiverTransportID = nil
         state = .connecting
 
         let session = makeSession(endpoint)
         session.onMediaStatusChange = { [weak self] status in
-            self?.mediaStatus = status
-            self?.mediaStatusReceivedAt = status == nil ? nil : Date()
+            self?.apply(status)
         }
         session.onReceiverStopped = { [weak self] in
             self?.receiverStopped()
+        }
+        session.onConnectionEnded = { [weak self] in
+            self?.connectionLost()
         }
         self.session = session
 
@@ -182,6 +226,7 @@ final class CastConnectionModel {
               let session else {
             throw CastClient.ClientError.notConnected
         }
+        resumePosition = nil
         try await session.loadMedia(media, transportID: transportID)
     }
 
@@ -215,8 +260,7 @@ final class CastConnectionModel {
             return
         }
         await session.stopMediaPlayback()
-        mediaStatus = nil
-        mediaStatusReceivedAt = nil
+        apply(nil)
     }
 
     /// Ends the session and returns to the idle state.
@@ -225,19 +269,55 @@ final class CastConnectionModel {
         await stopSession()
         connectedDevice = nil
         receiverTransportID = nil
+        resumePosition = nil
         mediaStatus = nil
         mediaStatusReceivedAt = nil
         state = .idle
+    }
+
+    private func apply(_ status: CastClient.MediaStatus?) {
+        mediaStatus = status
+        mediaStatusReceivedAt = status == nil ? nil : Date()
+        resumePosition = status == nil ? nil : livePosition
     }
 
     private func receiverStopped() {
         guard state == .connected else {
             return
         }
+        resumePosition = livePosition ?? resumePosition
         receiverTransportID = nil
         mediaStatus = nil
         mediaStatusReceivedAt = nil
         state = .failed("The device stopped the receiver. Connect again to continue.")
+        CastLog.connection.error(
+            "Receiver stopped by the device at \(self.resumePosition ?? 0, privacy: .public)s"
+        )
+    }
+
+    /// Reports a transport that died, for example because the Mac slept, and keeps the
+    /// position so the cast can be resumed.
+    private func connectionLost() {
+        guard state == .connected else {
+            return
+        }
+        resumePosition = livePosition ?? resumePosition
+        receiverTransportID = nil
+        mediaStatus = nil
+        mediaStatusReceivedAt = nil
+        state = .failed(Self.connectionLostMessage)
+        CastLog.connection.error(
+            "Connection lost; resume position \(self.resumePosition ?? 0, privacy: .public)s"
+        )
+    }
+
+    static let connectionLostMessage =
+        "The connection to the device was lost. Connect again to continue."
+
+    /// Whether the session ended because its transport died, which is recoverable
+    /// without the user doing anything.
+    var isConnectionLost: Bool {
+        state == .failed(Self.connectionLostMessage)
     }
 
     private func stopSession() async {

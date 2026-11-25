@@ -48,12 +48,16 @@ final class TLSCastTransport: CastTransporting, @unchecked Sendable {
         let attempt = ConnectionAttempt()
         try await withCheckedThrowingContinuation { continuation in
             attempt.continuation = continuation
-            connection.stateUpdateHandler = { state in
+            connection.stateUpdateHandler = { [weak self] state in
                 switch state {
                 case .ready:
                     attempt.finish(.success(()))
                 case let .failed(error):
                     attempt.finish(.failure(error))
+                    // A connection that fails after it was ready, for example when the
+                    // Mac sleeps, never recovers: end the transport so the client sees
+                    // an ended stream instead of a socket that waits forever.
+                    self?.closeAfterFailure()
                 case let .waiting(error):
                     attempt.finish(.failure(error))
                 default:
@@ -63,14 +67,16 @@ final class TLSCastTransport: CastTransporting, @unchecked Sendable {
             connection.start(queue: queue)
         }
 
-        queue.async {
+        queue.sync {
             self.connection = connection
             self.startReceiving()
         }
     }
 
     func send(_ data: Data) async throws {
-        guard let connection else {
+        // Read through the queue so a send issued right after `connect()` sees the
+        // stored connection, and so the mutable state stays confined to the queue.
+        guard let connection = queue.sync(execute: { self.connection }) else {
             throw TransportError.notConnected
         }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
@@ -107,6 +113,15 @@ final class TLSCastTransport: CastTransporting, @unchecked Sendable {
             self.waiting?.resume(returning: nil)
             self.waiting = nil
         }
+    }
+
+    /// Closes the transport after the connection itself failed; ignores the failures
+    /// that belong to an attempt that has not been stored yet.
+    private func closeAfterFailure() {
+        guard connection != nil else {
+            return
+        }
+        close()
     }
 
     private func startReceiving() {
