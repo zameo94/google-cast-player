@@ -8,7 +8,7 @@ Current feature branches: feature/end-to-end-streaming (Phase 6), created from m
 Current working branch: feature/end-to-end-streaming.
 Last verified commit: main is 51cdca4; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
-Last verified test run: 133 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
+Last verified test run: 134 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
 Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
 Last remote synchronization: main matches origin/main at 51cdca4. The Phase 6 branch has not been pushed.
 
@@ -92,13 +92,15 @@ Phase 6 — end-to-end local video streaming:
 
 * `PlaybackModel` owns one cast: it starts the local server for the selected file, builds the media request from its MIME type, hands the URL to the connected device, and stops serving when the cast ends or fails.
 * `MediaServing` and `CastMediaLoading` keep the orchestration testable without a socket or a device; `LocalMediaServer` and `CastConnectionModel` provide the real implementations.
-* The window offers "Play on <device>" once a device is connected and a video is selected, shows a spinner while starting, prints the served URL once the device accepted it, and offers Stop, which stops the server and closes the session.
+* The window offers "Play on <device>" once a device is connected and a video is selected, shows a spinner while starting, prints the served URL once the device accepted it, and offers Stop.
+* Ending a session sends a media STOP, a receiver STOP and a connection CLOSE before dropping the socket, then stops the server; closing the socket alone left the receiver playing and kept its cast screen alive.
 * Leaving the connected state stops the server, so the file stops being reachable exactly when the cast ends.
 * Server failures and load failures now carry user-facing descriptions.
 * 8 additional unit tests (133 in total), including an integration test that fetches the exact URL handed to the device and compares the bytes.
 
 4. In Progress
-* Playback of a real file on a physical device: the full flow has not run on hardware yet, so the Phase 6 acceptance criterion is open.
+* Playback was reported working on a real device, but without a recorded run of the checks in section 6, so the Phase 6 acceptance criterion is not yet documented as verified.
+* Ending a session now sends explicit STOP commands; whether the device returns to its ambient screen promptly is still to be confirmed on hardware.
 * Phase 7 (playback controls and reported state) has not started and waits for the hardware verification.
 
 5. Quality Gate and Tooling Decisions
@@ -149,7 +151,7 @@ Continuous integration: .github/workflows/ci.yml builds and tests the project on
 7. Recent Work Log
 The log is chronological: each row records what happened on that date, not the current state, which section 1 reports.
 
-| Date | Branch | Work | Verification | Commit |
+| Date | Branch | Work | Verification at that date | Commit |
 | --- | --- | --- | --- | --- |
 | 2026-11-24 | main | Initial repository setup and project instructions | Repository state inspected | d3a2b76 |
 | 2026-11-24 | main | Product roadmap and development documentation | Documented | e8f9263, 59b6adf |
@@ -181,6 +183,7 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-25 | dev | Integrated the Phase 5 branch | Build and tests re-run on dev after the merge | see section 6 |
 | 2026-11-25 | main | Pull request #6 merged dev into main | Build and tests verified on dev before the merge | 51cdca4 |
 | 2026-11-25 | feature/end-to-end-streaming | Cast orchestration, cast controls and the served URL in the window | 133 tests passed; gga rejected an unguarded URL literal in the tests and it was fixed | bafdfa4 |
+| 2026-11-25 | feature/end-to-end-streaming | Stop the media and the receiver before closing the session | 134 tests passed; found because disconnecting left the receiver playing on hardware | d35e6d3 |
 | 2026-11-25 | dev | Integrated the Phase 3 branch | Build and tests re-run on dev after the merge | see section 6 |
 
 8. Blockers and Risks
@@ -195,8 +198,8 @@ Risks and pending verification:
 * The Cast client accepts the device's self-signed certificate, as Cast requires; the session is therefore trusted because it is on the local network, not because of a certificate chain.
 * Casting again without stopping first stops the previous server, so an older session loses its media source; the window offers Stop for that, and broadcasting a replacement session belongs to the playback work.
 * The media server speaks plain HTTP with no authentication beyond the unguessable per-session path. It is meant for a trusted local network and only while a session needs it; the server is not exposed outside the LAN by the app.
-* The server is not wired into the window yet: nothing starts it automatically, and Phase 6 owns that lifecycle. Its behavior is covered by tests instead.
-* Chromecast discovery, connectivity and playback have never been exercised; the corresponding phases are not started.
+* The server runs only while a cast is active: `PlaybackModel` starts it for the selected file and stops it when the cast ends, and its behaviour is covered by tests.
+* Discovery, connection and playback were exercised manually on 2026-11-25 and playback was reported working; the full checklist in section 6 has not been recorded as completed, so no phase criterion is documented as verified yet.
 * The compatibility verdict describes the container and codecs only. Real playback on a receiver is unverified, so the interface never labels a file as playable, only as matching or not matching the format profile.
 * Interactive and visual checks are manual: the shell has neither screen recording nor accessibility permission, and there is no UI test target. Section 6 records which checks the user exercised and which are still pending.
 * Repository branch protection and required status checks cannot be configured from this environment and must be verified on GitHub by the user.
