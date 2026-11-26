@@ -320,6 +320,13 @@ APPLESCRIPT
     fi
   fi
 
+  # The background is a Finder setting: if the layout was not written, the image would
+  # carry 152 KB of a picture nothing displays. It was copied by this run, so this run
+  # removes it.
+  if [ ! -f "$MOUNT_POINT/.DS_Store" ] && [ -d "$MOUNT_POINT/.background" ]; then
+    rm -rf -- "$MOUNT_POINT/.background"
+  fi
+
   echo "==> Naming the volume"
   if ! diskutil rename "$MOUNT_POINT" "$VOLUME_NAME" >/dev/null; then
     echo "error: the volume could not be renamed to \"$VOLUME_NAME\"." >&2
