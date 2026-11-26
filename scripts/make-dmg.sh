@@ -49,11 +49,12 @@ xcodebuild \
   -derivedDataPath "$BUILD_DIR" \
   build >/dev/null
 
-APP="$BUILD_DIR/Build/Products/Release/$SCHEME.app"
+APP="$BUILD_DIR/Build/Products/Release/Google Cast Player.app"
 if [ ! -d "$APP" ]; then
   echo "error: the build produced no application at $APP" >&2
   exit 1
 fi
+APP_NAME="$(basename "$APP")"
 
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 STAGE="$BUILD_DIR/stage"
@@ -86,10 +87,11 @@ if [ -f "$BACKGROUND" ]; then
 fi
 
 echo "==> Arranging the window"
-if DMG_VOLUME_NAME="$VOLUME_NAME" DMG_BACKGROUND_FILE="$BACKGROUND_FILE" osascript <<'APPLESCRIPT' >/dev/null 2>&1
+if DMG_VOLUME_NAME="$VOLUME_NAME" DMG_BACKGROUND_FILE="$BACKGROUND_FILE" DMG_APP_NAME="$APP_NAME" osascript <<'APPLESCRIPT' >/dev/null 2>&1
 on run
 	set diskName to system attribute "DMG_VOLUME_NAME"
 	set backgroundPath to system attribute "DMG_BACKGROUND_FILE"
+	set appName to system attribute "DMG_APP_NAME"
 	tell application "Finder"
 		tell disk diskName
 			open
@@ -103,7 +105,7 @@ on run
 			if backgroundPath is not "" then
 				set background picture of theViewOptions to (POSIX file backgroundPath)
 			end if
-			set position of item "GoogleCastPlayer.app" of container window to {150, 190}
+			set position of item appName of container window to {150, 190}
 			set position of item "Applications" of container window to {450, 190}
 			update without registering applications
 		end tell
@@ -136,7 +138,7 @@ fi
 # Leave no registration behind: every build would otherwise add a stale copy of the app
 # that Spotlight and LaunchServices keep offering next to the installed one.
 if [ -x "$LSREGISTER" ]; then
-  "$LSREGISTER" -u "$MOUNT_POINT/GoogleCastPlayer.app" >/dev/null 2>&1 || true
+  "$LSREGISTER" -u "$MOUNT_POINT/$APP_NAME" >/dev/null 2>&1 || true
 fi
 
 echo "==> Detaching and compressing"

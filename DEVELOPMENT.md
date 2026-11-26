@@ -148,7 +148,7 @@ Phase 8 — stabilization and release candidate:
 * Reason for the dedicated agent: the previous configuration invoked the general-purpose default agent, whose free-form answers sometimes placed the verdict outside the parsed window, blocking valid commits. A reviewer scoped to the verdict contract and without tools removes that source of variability.
 
 6. Build and Test Procedures
-The project is GoogleCastPlayer.xcodeproj with the shared scheme GoogleCastPlayer, the GoogleCastPlayer application target and the GoogleCastPlayerTests unit test target.
+The project is GoogleCastPlayer.xcodeproj with the shared scheme GoogleCastPlayer, the "Google Cast Player" application target (product name with the spaces a Finder application name needs, while the Swift module and the executable stay `GoogleCastPlayer`) and the GoogleCastPlayerTests unit test target.
 
 Build:
 
