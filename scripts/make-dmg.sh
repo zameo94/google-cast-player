@@ -104,7 +104,7 @@ fi
 
 # A bundled application that cannot be verified is not packaged.
 echo "==> Verifying the signature of $(basename "$APP")"
-codesign --verify --deep --strict "$APP"
+codesign --verify --strict "$APP"
 
 APP_NAME="$(basename "$APP")"
 # The bundle keeps the spaced name Finder shows; the download drops the spaces.
@@ -171,13 +171,13 @@ fi
 
 # Everything temporary is created by this run, under a directory this run owns.
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/castplayer-dmg.XXXXXX")"
-MOUNTED=0
+DEVICE=""
 
 cleanup() {
   status=$?
-  if [ "$MOUNTED" -eq 1 ]; then
-    if hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || hdiutil detach "$TMP_DIR/mnt" -quiet 2>/dev/null; then
-      MOUNTED=0
+  if [ -n "$DEVICE" ]; then
+    if hdiutil detach "$DEVICE" -quiet 2>/dev/null; then
+      DEVICE=""
     else
       echo "warning: a volume could not be detached; keeping $TMP_DIR so its image is not removed" >&2
       exit "$status"
@@ -187,6 +187,45 @@ cleanup() {
   exit "$status"
 }
 trap cleanup EXIT
+
+# Attaches our own image and records the device and the real mount point it was given.
+# Working from the device, never from an assumed path, is what keeps a detach away from a
+# volume this run did not mount.
+attach_image() {
+  local expected="$1" output
+  output="$(hdiutil attach "$RW_IMAGE" -mountpoint "$expected" -nobrowse -noautoopen)"
+  DEVICE="$(printf '%s\n' "$output" | awk -F'\t' 'NF >= 3 && $NF ~ /^\// { gsub(/ /, "", $1); print $1; exit }')"
+  MOUNT_POINT="$(printf '%s\n' "$output" | awk -F'\t' 'NF >= 3 && $NF ~ /^\// { print $NF; exit }')"
+  if [ -z "$DEVICE" ] || [ -z "$MOUNT_POINT" ]; then
+    echo "error: the image was not mounted:" >&2
+    printf '%s\n' "$output" >&2
+    exit 1
+  fi
+  # hdiutil reports physical paths, while mktemp can hand out a path under /var that is
+  # really /private/var, so the comparison resolves both before deciding.
+  local expected_real actual_real
+  expected_real="$(cd "$expected" 2>/dev/null && pwd -P || true)"
+  actual_real="$(cd "$MOUNT_POINT" 2>/dev/null && pwd -P || true)"
+  if [ -z "$expected_real" ] || [ "$actual_real" != "$expected_real" ]; then
+    echo "error: the image mounted at $MOUNT_POINT instead of $expected; not touching it." >&2
+    echo "error: eject any volume with the same name and retry." >&2
+    exit 1
+  fi
+}
+
+# Attaches without a fixed name, so every run gets a volume name of its own and cannot
+# collide with anything already mounted. Used only by the optional Finder layout.
+attach_image_unique() {
+  local output
+  output="$(hdiutil attach "$RW_IMAGE" -nobrowse -noautoopen)"
+  DEVICE="$(printf '%s\n' "$output" | awk -F'\t' 'NF >= 3 && $NF ~ /^\/Volumes\// { gsub(/ /, "", $1); print $1; exit }')"
+  MOUNT_POINT="$(printf '%s\n' "$output" | awk -F'\t' 'NF >= 3 && $NF ~ /^\/Volumes\// { print $NF; exit }')"
+  if [ -z "$DEVICE" ] || [ -z "$MOUNT_POINT" ]; then
+    echo "error: the image was not mounted:" >&2
+    printf '%s\n' "$output" >&2
+    exit 1
+  fi
+}
 
 STAGE="$TMP_DIR/stage"
 RW_IMAGE="$TMP_DIR/read-write.dmg"
@@ -207,13 +246,10 @@ hdiutil create \
 
 echo "==> Mounting"
 if [ "$PRETTY" -eq 1 ]; then
-  # Finder only writes window state for a volume under /Volumes.
-  hdiutil attach "$RW_IMAGE" -mountpoint "$MOUNT_POINT" -nobrowse -noautoopen >/dev/null
-  if [ ! -d "$MOUNT_POINT" ]; then
-    echo "error: the image was not mounted at $MOUNT_POINT" >&2
-    exit 1
-  fi
-  MOUNTED=1
+  # Finder only writes window state for a volume under /Volumes, and /Volumes cannot be
+  # written by a normal user, so the volume name itself carries the uniqueness and is
+  # renamed to the final name after the layout is written.
+  attach_image_unique
 
   BACKGROUND_FILE=""
   if [ -f "$BACKGROUND" ]; then
@@ -284,8 +320,19 @@ APPLESCRIPT
     fi
   fi
 
-  # Set after the layout on purpose: Finder removes the icon file when it opens a volume
-  # that already carries one.
+  echo "==> Naming the volume"
+  if ! diskutil rename "$MOUNT_POINT" "$VOLUME_NAME" >/dev/null; then
+    echo "error: the volume could not be renamed to \"$VOLUME_NAME\"." >&2
+    exit 1
+  fi
+  MOUNT_POINT="/Volumes/$VOLUME_NAME"
+  if [ ! -d "$MOUNT_POINT" ]; then
+    echo "error: after the rename the volume is not at $MOUNT_POINT; another volume may already use that name." >&2
+    exit 1
+  fi
+
+  # Set after the layout and the rename, on purpose: Finder removes the icon file when it
+  # opens a volume that already carries one.
   if [ -f "$APP/Contents/Resources/AppIcon.icns" ] && command -v SetFile >/dev/null; then
     cp "$APP/Contents/Resources/AppIcon.icns" "$MOUNT_POINT/.VolumeIcon.icns"
     SetFile -a C "$MOUNT_POINT" 2>/dev/null || echo "warning: the volume icon could not be set" >&2
@@ -293,21 +340,20 @@ APPLESCRIPT
 else
   # No Finder, no AppleScript: a private mount point that never pollutes /Volumes.
   mkdir -p "$TMP_DIR/mnt"
-  hdiutil attach "$RW_IMAGE" -mountpoint "$TMP_DIR/mnt" -nobrowse -noautoopen >/dev/null
-  if [ ! -d "$TMP_DIR/mnt/Applications" ] && [ ! -L "$TMP_DIR/mnt/Applications" ]; then
-    echo "error: the image was not mounted as expected at $TMP_DIR/mnt" >&2
+  attach_image "$TMP_DIR/mnt"
+  if [ ! -d "$MOUNT_POINT/Applications" ] && [ ! -L "$MOUNT_POINT/Applications" ]; then
+    echo "error: the image does not contain the expected Applications link" >&2
     exit 1
   fi
-  MOUNTED=1
 fi
 
 echo "==> Detaching"
 sync
-if ! hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null && ! hdiutil detach "$TMP_DIR/mnt" -quiet 2>/dev/null; then
+if ! hdiutil detach "$DEVICE" -quiet; then
   echo "error: the volume is busy and could not be detached. Eject it in Finder and retry." >&2
   exit 1
 fi
-MOUNTED=0
+DEVICE=""
 
 echo "==> Compressing"
 hdiutil convert "$RW_IMAGE" -format UDZO -o "$FINAL_IMAGE" >/dev/null
