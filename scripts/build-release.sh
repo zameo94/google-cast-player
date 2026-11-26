@@ -12,6 +12,7 @@
 # Output:
 #   build/Build/Products/Release/<product>.app   and the path, on the last line
 #   build/xcodebuild.log                         the full build log, kept on success and failure
+#   build/.built-commit                          the commit a clean build came from
 #
 # A dirty working tree is refused by default, so a release artifact corresponds to a
 # committed revision. Set ALLOW_DIRTY=1 for a throw-away build while developing.
@@ -57,6 +58,12 @@ if [ "$APP_COUNT" -ne 1 ]; then
   exit 1
 fi
 APP="$(find "$PRODUCTS" -maxdepth 1 -name '*.app' | head -1)"
+
+# A release artifact must be traceable to a commit: the marker is written only by a build
+# made from a clean tree, and make-dmg.sh refuses to package a default bundle without it.
+if [ "${ALLOW_DIRTY:-0}" != "1" ]; then
+  git rev-parse HEAD > "$OUT_DIR/.built-commit"
+fi
 
 echo "==> Built $(basename "$APP")"
 echo "==> Log: $LOG"

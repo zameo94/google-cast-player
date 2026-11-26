@@ -13,6 +13,9 @@
 #   scripts/make-dmg.sh <app> --pretty     also arrange the window through Finder (optional)
 #   scripts/make-dmg.sh <app> --force      replace artifacts that already exist
 #
+# Without an argument the bundle in build/ is packaged only when build-release.sh built it
+# from the current commit; an explicit path is the deliberate way to package anything else.
+#
 # Output, under dist/:
 #   <product>-<version>.dmg            the image to attach to a release
 #   <product>-<version>.dmg.sha256     the digest, usable with `shasum -a 256 -c`
@@ -95,6 +98,17 @@ if [ -z "$APP" ]; then
     exit 2
   fi
   APP="$FOUND"
+  # A bundle that already exists is not necessarily a bundle of the current commit: the
+  # marker is the only proof. Packaging an explicit path stays a deliberate expert action.
+  MARKER="$ROOT/build/.built-commit"
+  HEAD_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
+  BUILT_COMMIT="$(cat "$MARKER" 2>/dev/null || true)"
+  if [ -z "$BUILT_COMMIT" ] || [ "$BUILT_COMMIT" != "$HEAD_COMMIT" ]; then
+    echo "error: the bundle in build/ was not built from the current commit." >&2
+    printf '  built from: %s\n  HEAD:       %s\n' "${BUILT_COMMIT:-unknown}" "${HEAD_COMMIT:-unknown}" >&2
+    echo "error: run scripts/make-release.sh to build and package in one step, or pass a bundle path explicitly." >&2
+    exit 2
+  fi
   echo "==> Packaging $APP"
   echo "==> (from the build directory; no compilation involved)"
 fi
