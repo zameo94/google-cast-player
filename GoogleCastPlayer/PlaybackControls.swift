@@ -11,6 +11,7 @@ struct PlaybackControls: View {
     let playback: PlaybackModel
 
     @State private var seekTarget: Double?
+    @State private var volumeTarget: Double?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -61,7 +62,71 @@ struct PlaybackControls: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
+
+            volumeRow
         }
+    }
+
+    // MARK: - Volume
+
+    /// Volume slider for the device itself.
+    ///
+    /// The level shown is the one the receiver reported; while the user drags, the slider
+    /// follows the drag and the command is sent when it is released, so device updates do
+    /// not fight the gesture.
+    private var volumeRow: some View {
+        HStack(spacing: 8) {
+            Button {
+                Task { await toggleMute() }
+            } label: {
+                Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .foregroundStyle(isMuted ? Color.orange : Color.secondary)
+                    .frame(width: 18)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(isMuted ? "Unmute device" : "Mute device")
+            .help(isMuted ? "Unmute the device" : "Mute the device")
+
+            Slider(value: volumeBinding, in: 0...1) { isEditing in
+                if !isEditing {
+                    commitVolume()
+                }
+            }
+            .accessibilityLabel("Device volume")
+
+            Text(volumePercent)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 38, alignment: .trailing)
+        }
+    }
+
+    private var isMuted: Bool {
+        connection.volume?.muted ?? false
+    }
+
+    private func toggleMute() async {
+        await connection.setMuted(!isMuted)
+    }
+
+    private var volumeBinding: Binding<Double> {
+        Binding(
+            get: { volumeTarget ?? connection.volume?.level ?? 1 },
+            set: { volumeTarget = $0 }
+        )
+    }
+
+    private var volumePercent: String {
+        let level = volumeTarget ?? connection.volume?.level ?? 1
+        return "\(Int((level * 100).rounded()))%"
+    }
+
+    private func commitVolume() {
+        guard let target = volumeTarget else {
+            return
+        }
+        volumeTarget = nil
+        Task { await connection.setVolume(target) }
     }
 
     // MARK: - State

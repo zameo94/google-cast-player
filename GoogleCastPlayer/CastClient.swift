@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Waits for a duration; injected so timeouts can be tested without wall-clock waits.
 protocol Sleeping: Sendable {
@@ -14,14 +15,15 @@ struct TaskSleeper: Sleeping {
 /// Drives the Cast V2 handshake over a transport.
 ///
 /// The client speaks the parts of the protocol the app needs: the connection namespace,
-/// the heartbeat, launching the default media receiver, and sending a load command. It
-/// does not manage playback state; that belongs to the playback phase.
+/// the heartbeat, launching the default media receiver, the load command and the
+/// playback commands, and it reads the media status the receiver pushes. It does not
+/// decide what the interface shows; the connection model maps that status to app types.
 @MainActor
 final class CastClient {
     enum ClientError: Error, Equatable, LocalizedError {
         case notConnected
         case receiverLaunchTimedOut
-        case receiverRejected
+        case cannotDescribeMedia
 
         var errorDescription: String? {
             switch self {
@@ -29,8 +31,8 @@ final class CastClient {
                 return "The device is not connected."
             case .receiverLaunchTimedOut:
                 return "The device did not start the receiver in time."
-            case .receiverRejected:
-                return "The device refused to start the receiver."
+            case .cannotDescribeMedia:
+                return "The media request could not be built."
             }
         }
     }
@@ -42,13 +44,30 @@ final class CastClient {
         /// `BUFFERED` for a progressive HTTP source.
         let streamType: String
         let title: String?
+        /// Position, in seconds, the receiver starts from.
+        let currentTime: TimeInterval
 
-        init(contentURL: URL, contentType: String, streamType: String = "BUFFERED", title: String? = nil) {
+        init(
+            contentURL: URL,
+            contentType: String,
+            streamType: String = "BUFFERED",
+            title: String? = nil,
+            currentTime: TimeInterval = 0
+        ) {
             self.contentURL = contentURL
             self.contentType = contentType
             self.streamType = streamType
             self.title = title
+            self.currentTime = currentTime
         }
+    }
+
+    /// Volume the receiver reports and accepts, from 0 to 1.
+    struct Volume: Equatable, Sendable {
+        /// Current level, from 0 to 1.
+        let level: Double
+        /// Whether the device is muted.
+        let muted: Bool
     }
 
     /// What the receiver reports about the media it is playing.
@@ -93,7 +112,12 @@ final class CastClient {
     private let transport: any CastTransporting
     private let launchTimeout: Duration
     private let heartbeatInterval: Duration
+    private let heartbeatTimeout: Duration
     private let sleeper: any Sleeping
+
+    private let clock = ContinuousClock()
+    /// Instant of the last bytes received, used to notice a session that stopped answering.
+    private var lastInboundAt: ContinuousClock.Instant?
 
     private var receiveTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
@@ -108,6 +132,12 @@ final class CastClient {
     var onMediaStatus: ((MediaStatus?) -> Void)?
     /// Called when the device reports that no receiver application is running.
     var onReceiverStopped: (() -> Void)?
+    /// Called once when the transport stops carrying the session.
+    var onConnectionEnded: (() -> Void)?
+    /// Last volume the receiver reported.
+    private(set) var volume: Volume?
+    /// Called on every volume the receiver reports.
+    var onVolumeChange: ((Volume?) -> Void)?
     private var receiverBuffer = Data()
     private var nextRequestID = 1
     private var isConnected = false
@@ -116,11 +146,13 @@ final class CastClient {
         transport: any CastTransporting,
         launchTimeout: Duration = .seconds(10),
         heartbeatInterval: Duration = .seconds(5),
+        heartbeatTimeout: Duration = .seconds(45),
         sleeper: any Sleeping = TaskSleeper()
     ) {
         self.transport = transport
         self.launchTimeout = launchTimeout
         self.heartbeatInterval = heartbeatInterval
+        self.heartbeatTimeout = heartbeatTimeout
         self.sleeper = sleeper
     }
 
@@ -128,6 +160,7 @@ final class CastClient {
     func connect() async throws {
         try await transport.connect()
         isConnected = true
+        lastInboundAt = clock.now
         try await send(
             CastMessage(
                 sourceID: Self.senderID,
@@ -190,6 +223,7 @@ final class CastClient {
         )
 
         let requestID = takeRequestID()
+        let payload = try Self.loadPayload(media: media, requestID: requestID)
         mediaSessionID = nil
         mediaStatus = nil
         onMediaStatus?(nil)
@@ -198,7 +232,7 @@ final class CastClient {
                 sourceID: Self.senderID,
                 destinationID: transportID,
                 namespace: Namespace.media,
-                payload: Self.loadPayload(media: media, requestID: requestID)
+                payload: payload
             )
         )
         return requestID
@@ -236,14 +270,23 @@ final class CastClient {
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
             return
         }
-        try? await send(
-            CastMessage(
-                sourceID: Self.senderID,
-                destinationID: transportID,
-                namespace: Namespace.media,
-                payload: String(decoding: data, as: UTF8.self)
+        do {
+            try await send(
+                CastMessage(
+                    sourceID: Self.senderID,
+                    destinationID: transportID,
+                    namespace: Namespace.media,
+                    payload: String(decoding: data, as: UTF8.self)
+                )
             )
-        )
+        } catch {
+            // A command that cannot leave the Mac means the session is gone; reporting it
+            // is better than showing a state the device never received.
+            CastLog.client.error(
+                "\(type, privacy: .public) could not be sent: \(error.localizedDescription, privacy: .public)"
+            )
+            connectionEnded()
+        }
     }
 
     /// Stops the media that is playing, and nothing else.
@@ -307,12 +350,53 @@ final class CastClient {
         transport.close()
     }
 
+    /// Sets the device volume to `level`, from 0 to 1.
+    ///
+    /// The device answers with a receiver status carrying the volume it actually applied,
+    /// which is what the interface shows.
+    func setVolume(_ level: Double) async {
+        await sendVolumeChange(["level": min(max(level, 0), 1)])
+    }
+
+    /// Mutes or unmutes the device, keeping its level.
+    func setMuted(_ muted: Bool) async {
+        await sendVolumeChange(["muted": muted])
+    }
+
+    private func sendVolumeChange(_ volume: [String: Any]) async {
+        guard isConnected else {
+            return
+        }
+        let payload: [String: Any] = [
+            "type": "SET_VOLUME",
+            "requestId": takeRequestID(),
+            "volume": volume,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
+            return
+        }
+        do {
+            try await send(
+                CastMessage(
+                    sourceID: Self.senderID,
+                    destinationID: Self.receiverID,
+                    namespace: Namespace.receiver,
+                    payload: String(decoding: data, as: UTF8.self)
+                )
+            )
+        } catch {
+            CastLog.client.error("SET_VOLUME could not be sent: \(error.localizedDescription, privacy: .public)")
+            connectionEnded()
+        }
+    }
+
     // MARK: - Incoming messages
 
     /// Applies bytes received from the device.
     ///
     /// Kept internal so tests can drive the protocol without a socket.
     func handle(_ data: Data) {
+        lastInboundAt = clock.now
         receiverBuffer.append(data)
         let (messages, remainder) = CastMessage.frames(in: receiverBuffer)
         receiverBuffer = remainder
@@ -346,11 +430,19 @@ final class CastClient {
             payload: #"{"type":"PONG"}"#
         )
         Task { @MainActor in
-            try? await self.send(reply)
+            do {
+                try await self.send(reply)
+            } catch {
+                self.connectionEnded()
+            }
         }
     }
 
     private func handleReceiver(_ message: CastMessage) {
+        // Every receiver status carries the device volume, including the answer to a
+        // launch and the answer to a volume change.
+        applyVolume(in: message.payload)
+
         // A receiver status can also report that the app stopped.
         if Self.hasStoppedReceiver(in: message.payload) {
             let wasRunning = receiverTransportID != nil
@@ -358,7 +450,10 @@ final class CastClient {
             receiverSessionID = nil
             mediaSessionID = nil
             mediaStatus = nil
-            onMediaStatus?(nil)
+            // The model still holds the last status, and it is the only place that can
+            // remember where the media stopped. Publishing a nil status here would clear
+            // that position before the stop is reported, so it is not published: the
+            // model clears its own copy when it handles the stop.
             if wasRunning {
                 onReceiverStopped?()
             }
@@ -400,6 +495,15 @@ final class CastClient {
         onMediaStatus?(parsed)
     }
 
+    /// Applies the volume a receiver-status payload reports.
+    private func applyVolume(in payload: String) {
+        guard let volume = Self.volume(in: payload) else {
+            return
+        }
+        self.volume = volume
+        onVolumeChange?(volume)
+    }
+
     // MARK: - Background work
 
     private func startReceiving() {
@@ -411,26 +515,45 @@ final class CastClient {
                 }
                 self.handle(chunk)
             }
+            CastLog.client.error("The transport stopped delivering data")
             self?.connectionEnded()
         }
     }
 
     private func startHeartbeat() {
         let interval = heartbeatInterval
+        let timeout = heartbeatTimeout
         heartbeatTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: interval)
-                guard let self, !Task.isCancelled else {
+                do {
+                    try await Task.sleep(for: interval)
+                } catch {
                     return
                 }
-                try? await self.send(
-                    CastMessage(
-                        sourceID: Self.senderID,
-                        destinationID: Self.receiverID,
-                        namespace: Namespace.heartbeat,
-                        payload: #"{"type":"PING"}"#
+                guard let self, !Task.isCancelled, self.isConnected else {
+                    return
+                }
+                // A device that stopped answering, for example because the Mac slept,
+                // leaves a socket that looks open; silence is the only signal left.
+                if let lastInboundAt = self.lastInboundAt, self.clock.now - lastInboundAt > timeout {
+                    CastLog.client.error("Device silent for longer than the heartbeat timeout")
+                    self.connectionEnded()
+                    return
+                }
+                do {
+                    try await self.send(
+                        CastMessage(
+                            sourceID: Self.senderID,
+                            destinationID: Self.receiverID,
+                            namespace: Namespace.heartbeat,
+                            payload: #"{"type":"PING"}"#
+                        )
                     )
-                )
+                } catch {
+                    CastLog.client.error("Heartbeat send failed: \(error.localizedDescription, privacy: .public)")
+                    self.connectionEnded()
+                    return
+                }
             }
         }
     }
@@ -454,6 +577,9 @@ final class CastClient {
         }
         isConnected = false
         finishLaunch(.failure(ClientError.notConnected))
+        transport.close()
+        CastLog.client.error("Session closed after the connection ended")
+        onConnectionEnded?()
     }
 
     // MARK: - Helpers
@@ -480,7 +606,7 @@ final class CastClient {
         return nextRequestID
     }
 
-    private static func loadPayload(media: Media, requestID: Int) -> String {
+    private static func loadPayload(media: Media, requestID: Int) throws -> String {
         var mediaObject: [String: Any] = [
             "contentId": media.contentURL.absoluteString,
             "streamType": media.streamType,
@@ -494,10 +620,10 @@ final class CastClient {
             "requestId": requestID,
             "media": mediaObject,
             "autoplay": true,
-            "currentTime": 0,
+            "currentTime": media.currentTime,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
-            return "{}"
+            throw ClientError.cannotDescribeMedia
         }
         return String(decoding: data, as: UTF8.self)
     }
@@ -525,6 +651,18 @@ final class CastClient {
             return nil
         }
         return (transportID, application["sessionId"] as? String)
+    }
+
+    /// Reads the `status.volume` block of a receiver-status payload.
+    private static func volume(in payload: String) -> Volume? {
+        guard let data = payload.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let status = object["status"] as? [String: Any],
+              let volume = status["volume"] as? [String: Any],
+              let level = volume["level"] as? Double else {
+            return nil
+        }
+        return Volume(level: level, muted: volume["muted"] as? Bool ?? false)
     }
 
     /// Whether a receiver-status payload reports that no application is running.

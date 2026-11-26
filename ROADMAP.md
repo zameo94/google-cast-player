@@ -234,6 +234,11 @@ Objectives:
 * Review error handling and resource management.
 * Improve accessibility and usability.
 * Review performance and reliability.
+* Keep the cast alive while the display is off or the screen is locked, and recover the
+  session after the Mac wakes.
+* Volume control for the connected device through the receiver namespace. Scope addition
+  requested by the maintainer on 2026-11-26; AGENTS.md already lists it under Playback
+  Controls.
 * Document installation, permissions, limitations, and supported formats.
 * Prepare a release candidate.
 Acceptance criteria:
@@ -243,6 +248,9 @@ Acceptance criteria:
 * Security review is completed.
 * Documentation reflects actual application behavior.
 * Real-device playback has been verified.
+* A cast survives a locked screen and an idle display, and an interrupted cast resumes
+  where it stopped.
+* The volume slider changes the device volume and shows the level the device reports.
 * Release is explicitly approved by the user.
 5. Architecture Guidelines
 Keep the application separated into clear responsibilities. The final structure must be based on actual implementation needs, not on creating folders without purpose.

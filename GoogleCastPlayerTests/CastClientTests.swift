@@ -2,6 +2,29 @@ import Foundation
 import Testing
 @testable import GoogleCastPlayer
 
+/// Signal a callback can fulfill once and a test can await, without polling.
+@MainActor
+final class Signal {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isFulfilled = false
+
+    func fulfill() {
+        guard !isFulfilled else {
+            return
+        }
+        isFulfilled = true
+        continuation?.resume()
+        continuation = nil
+    }
+
+    func wait() async {
+        guard !isFulfilled else {
+            return
+        }
+        await withCheckedContinuation { continuation = $0 }
+    }
+}
+
 /// Sleeper that returns at once, so a timeout fires without waiting on wall time.
 struct ImmediateSleeper: Sleeping {
     func sleep(for duration: Duration) async {}
@@ -382,6 +405,113 @@ struct CastClientTests {
         #expect(!transport.isClosed)
     }
 
+    @Test func readsTheVolumeTheReceiverReports() async throws {
+        let (client, _) = try await connectClient()
+        defer { client.disconnect() }
+        var reported: CastClient.Volume?
+        client.onVolumeChange = { reported = $0 }
+
+        client.handle(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.receiver,
+                payload: #"{"type":"RECEIVER_STATUS","status":{"applications":[],"volume":{"level":0.25,"muted":true}}}"#
+            ).framed()
+        )
+
+        #expect(client.volume == CastClient.Volume(level: 0.25, muted: true))
+        #expect(reported == CastClient.Volume(level: 0.25, muted: true))
+    }
+
+    @Test func reportsTheVolumeTheLaunchResponseCarries() async throws {
+        let (client, transport) = try await connectClient()
+        let launch = Task { try await client.launchDefaultReceiver() }
+        await transport.waitForSentFrames(2)
+
+        transport.push(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.receiver,
+                payload: #"{"type":"RECEIVER_STATUS","status":{"applications":[{"appId":"CC1AD845","transportId":"web-5"}],"volume":{"level":0.6,"muted":false}}}"#
+            )
+        )
+        _ = try await launch.value
+
+        #expect(client.volume == CastClient.Volume(level: 0.6, muted: false))
+    }
+
+    @Test func sendsTheVolumeLevel() async throws {
+        let (client, transport) = try await connectClient()
+        defer { client.disconnect() }
+
+        await client.setVolume(0.3)
+
+        let message = try #require(transport.sentMessages.last)
+        #expect(message.namespace == CastClient.Namespace.receiver)
+        #expect(message.destinationID == CastClient.receiverID)
+        let payload = try #require(
+            try JSONSerialization.jsonObject(with: Data(message.payload.utf8)) as? [String: Any]
+        )
+        #expect(payload["type"] as? String == "SET_VOLUME")
+        #expect(payload["requestId"] as? Int != nil)
+        let volume = try #require(payload["volume"] as? [String: Any])
+        #expect(volume["level"] as? Double == 0.3)
+    }
+
+    @Test func clampsTheVolumeToTheSupportedRange() async throws {
+        let (client, transport) = try await connectClient()
+        defer { client.disconnect() }
+
+        await client.setVolume(1.7)
+        await client.setVolume(-0.5)
+
+        let levels = transport.sentMessages.compactMap { message -> Double? in
+            guard let object = try? JSONSerialization.jsonObject(with: Data(message.payload.utf8)) as? [String: Any],
+                  let volume = object["volume"] as? [String: Any] else {
+                return nil
+            }
+            return volume["level"] as? Double
+        }
+        #expect(levels == [1, 0])
+    }
+
+    @Test func sendsTheMuteState() async throws {
+        let (client, transport) = try await connectClient()
+        defer { client.disconnect() }
+
+        await client.setMuted(true)
+
+        let message = try #require(transport.sentMessages.last)
+        #expect(message.namespace == CastClient.Namespace.receiver)
+        let payload = try #require(
+            try JSONSerialization.jsonObject(with: Data(message.payload.utf8)) as? [String: Any]
+        )
+        #expect(payload["type"] as? String == "SET_VOLUME")
+        #expect(payload["requestId"] as? Int != nil)
+        let volume = try #require(payload["volume"] as? [String: Any])
+        #expect(volume["muted"] as? Bool == true)
+        #expect(volume["level"] == nil)
+    }
+
+    @Test func refusesTheMuteStateWithoutAConnection() async {
+        let transport = ScriptedCastTransport()
+        let client = CastClient(transport: transport)
+
+        await client.setMuted(true)
+
+        #expect(transport.sentMessages.isEmpty)
+    }
+
+    @Test func refusesTheVolumeWithoutAConnection() async {
+        let client = CastClient(transport: ScriptedCastTransport())
+
+        await client.setVolume(0.5)
+
+        #expect(client.volume == nil)
+    }
+
     @Test func reportsWhenTheReceiverStops() async throws {
         let (client, transport) = try await connectClient()
         var stopped = false
@@ -465,5 +595,69 @@ struct CastClientTests {
                 transportID: "web-5"
             )
         }
+    }
+
+    @Test func loadsTheMediaAtTheGivenPosition() async throws {
+        let (client, transport) = try await connectClient()
+        let url = try #require(URL(string: "http://192.168.1.40:5000/media/abc"))
+        let media = CastClient.Media(contentURL: url, contentType: "video/mp4", currentTime: 42)
+
+        try await client.load(media, transportID: "web-5")
+
+        let loadMessage = try #require(transport.sentMessages.last)
+        let payload = try #require(
+            try JSONSerialization.jsonObject(with: Data(loadMessage.payload.utf8)) as? [String: Any]
+        )
+        #expect(payload["currentTime"] as? TimeInterval == 42)
+    }
+
+    @Test func reportsATransportThatEnds() async throws {
+        let (client, transport) = try await connectClient(heartbeat: .seconds(30))
+        let ended = Signal()
+        client.onConnectionEnded = { ended.fulfill() }
+
+        transport.close()
+
+        await ended.wait()
+    }
+
+    @Test func reportsADeviceThatStoppedAnswering() async throws {
+        let transport = ScriptedCastTransport()
+        let client = CastClient(
+            transport: transport,
+            heartbeatInterval: .zero,
+            heartbeatTimeout: .zero
+        )
+        try await client.connect()
+        defer { client.disconnect() }
+        let ended = Signal()
+        client.onConnectionEnded = { ended.fulfill() }
+
+        await ended.wait()
+    }
+
+    @Test func keepsTheSessionWhileTheDeviceAnswers() async throws {
+        let transport = ScriptedCastTransport()
+        let client = CastClient(
+            transport: transport,
+            heartbeatInterval: .zero,
+            heartbeatTimeout: .seconds(60)
+        )
+        try await client.connect()
+        defer { client.disconnect() }
+        var didEnd = false
+        client.onConnectionEnded = { didEnd = true }
+
+        transport.push(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.heartbeat,
+                payload: #"{"type":"PONG"}"#
+            )
+        )
+        await transport.waitForSentFrames(4)
+
+        #expect(!didEnd)
     }
 }

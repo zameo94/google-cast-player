@@ -35,12 +35,61 @@ final class FakeMediaLoader: CastMediaLoading {
     var isConnected = true
     var loadError: (any Error)?
     private(set) var loadedMedia: [CastClient.Media] = []
+    var resumePosition: TimeInterval?
+    private(set) var reconnectCount = 0
+    /// Whether `reconnect()` restores the connection.
+    var reconnects = true
 
     func load(_ media: CastClient.Media) async throws {
         if let loadError {
             throw loadError
         }
         loadedMedia.append(media)
+    }
+
+    func reconnect() async {
+        reconnectCount += 1
+        isConnected = reconnects
+    }
+}
+
+/// Wake assertion double that mirrors the real begin/end semantics.
+@MainActor
+final class FakePowerAssertion: CastPowerAsserting {
+    private(set) var beginCount = 0
+    private(set) var endCount = 0
+    private(set) var isActive = false
+
+    func begin() {
+        guard !isActive else {
+            return
+        }
+        beginCount += 1
+        isActive = true
+    }
+
+    func end() {
+        guard isActive else {
+            return
+        }
+        endCount += 1
+        isActive = false
+    }
+}
+
+/// Sleep watcher double the test fires by hand.
+@MainActor
+final class FakeSleepWatcher: SystemSleepWatching {
+    var onWake: (() -> Void)?
+    private(set) var startCount = 0
+
+    func start() {
+        startCount += 1
+    }
+
+    /// Reports a wake the way the workspace notification would.
+    func fire() {
+        onWake?()
     }
 }
 
@@ -189,5 +238,229 @@ struct PlaybackModelTests {
         #expect(PlaybackModel.contentType(for: file(named: "clip.mp4")) == "video/mp4")
         #expect(PlaybackModel.contentType(for: file(named: "clip.mov")) == "video/quicktime")
         #expect(PlaybackModel.contentType(for: file(named: "clip.unknown")) == "video/mp4")
+    }
+
+    // MARK: - Keeping the Mac awake
+
+    @Test func keepsTheMacAwakeWhileCasting() async throws {
+        let power = FakePowerAssertion()
+        let model = PlaybackModel(server: try successServer(), power: power)
+
+        await model.play(file: file(), connection: FakeMediaLoader())
+
+        #expect(power.isActive)
+        #expect(power.beginCount == 1)
+    }
+
+    @Test func releasesTheMacWhenTheCastStops() async throws {
+        let power = FakePowerAssertion()
+        let model = PlaybackModel(server: try successServer(), power: power)
+        await model.play(file: file(), connection: FakeMediaLoader())
+
+        model.stop()
+
+        #expect(!power.isActive)
+        #expect(power.endCount == 1)
+    }
+
+    @Test func releasesTheMacWhenTheCastCannotStart() async {
+        let power = FakePowerAssertion()
+        let loader = FakeMediaLoader()
+        loader.loadError = CastClient.ClientError.receiverLaunchTimedOut
+        let model = PlaybackModel(server: FakeMediaServer(startResult: .failure(
+            LocalMediaServer.ServerError.cannotStart("port busy")
+        )), power: power)
+
+        await model.play(file: file(), connection: loader)
+
+        #expect(!power.isActive)
+    }
+
+    // MARK: - Interrupted casts
+
+    @Test func interruptsTheCastWhenTheConnectionIsLost() async throws {
+        let server = try successServer()
+        let power = FakePowerAssertion()
+        let model = PlaybackModel(server: server, power: power)
+        await model.play(file: file(), connection: FakeMediaLoader())
+
+        model.interrupt(reason: "The connection to the device was lost.")
+
+        #expect(model.state == .interrupted(reason: "The connection to the device was lost."))
+        #expect(server.stops >= 2)
+        #expect(model.file?.name == "movie.mp4")
+    }
+
+    @Test func keepsTheMacAwakeWhileTheCastCanBeRecovered() async throws {
+        let power = FakePowerAssertion()
+        let model = PlaybackModel(server: try successServer(), power: power)
+        await model.play(file: file(), connection: FakeMediaLoader())
+
+        model.interrupt(reason: "lost")
+
+        // Releasing the assertion here would put the Mac to sleep before the recovery
+        // could run, which is what turned a short loss into a dead session.
+        #expect(power.isActive)
+        #expect(power.endCount == 0)
+    }
+
+    @Test func releasesTheMacWhenTheRecoveryGivesUp() async throws {
+        let loader = FakeMediaLoader()
+        loader.reconnects = false
+        let power = FakePowerAssertion()
+        let model = PlaybackModel(
+            server: try successServer(),
+            power: power,
+            sleeper: ImmediateSleeper()
+        )
+        await model.play(file: file(), connection: loader)
+        model.interrupt(reason: "lost")
+
+        await model.recoverCast()
+
+        #expect(!power.isActive)
+        guard case .interrupted = model.state else {
+            Issue.record("Expected an interrupted cast, got \(model.state)")
+            return
+        }
+    }
+
+    @Test func ignoresAnInterruptionWhenNothingWasCasting() async {
+        let model = PlaybackModel(server: FakeMediaServer())
+
+        model.interrupt(reason: "The connection to the device was lost.")
+
+        #expect(model.state == .idle)
+        #expect(model.file == nil)
+    }
+
+    @Test func resumesTheInterruptedCastJustBeforeTheLastPosition() async throws {
+        let server = try successServer()
+        let loader = FakeMediaLoader()
+        let model = PlaybackModel(server: server, power: FakePowerAssertion())
+        await model.play(file: file(), connection: loader)
+        loader.resumePosition = 63
+        model.interrupt(reason: "lost")
+
+        await model.resume()
+
+        #expect(loader.reconnectCount == 1)
+        #expect(loader.loadedMedia.count == 2)
+        #expect(loader.loadedMedia.last?.currentTime == 60)
+        guard case .casting = model.state else {
+            Issue.record("Expected casting, got \(model.state)")
+            return
+        }
+        #expect(server.files.map(\.name) == ["movie.mp4", "movie.mp4"])
+    }
+
+    @Test func neverResumesBeforeTheStartOfTheMedia() async throws {
+        let server = try successServer()
+        let loader = FakeMediaLoader()
+        let model = PlaybackModel(server: server, power: FakePowerAssertion())
+        await model.play(file: file(), connection: loader)
+        loader.resumePosition = 1
+        model.interrupt(reason: "lost")
+
+        await model.resume()
+
+        #expect(loader.loadedMedia.last?.currentTime == 0)
+    }
+
+    @Test func keepsTheCastInterruptedWhenTheDeviceDoesNotAnswerAgain() async throws {
+        let loader = FakeMediaLoader()
+        loader.reconnects = false
+        let model = PlaybackModel(server: try successServer(), power: FakePowerAssertion())
+        await model.play(file: file(), connection: loader)
+        model.interrupt(reason: "lost")
+
+        await model.resume()
+
+        guard case .interrupted = model.state else {
+            Issue.record("Expected an interrupted cast, got \(model.state)")
+            return
+        }
+        #expect(loader.loadedMedia.count == 1)
+    }
+
+    // MARK: - Wake
+
+    @Test func startsWatchingForWakeOnce() {
+        let watcher = FakeSleepWatcher()
+        let model = PlaybackModel(server: FakeMediaServer(), sleepWatcher: watcher)
+
+        model.startWatchingForWake()
+        model.startWatchingForWake()
+
+        #expect(watcher.startCount == 1)
+        #expect(watcher.onWake != nil)
+    }
+
+    @Test func resumesTheInterruptedCastAfterTheMacWakes() async throws {
+        let loader = FakeMediaLoader()
+        let model = PlaybackModel(server: try successServer(), power: FakePowerAssertion())
+        await model.play(file: file(), connection: loader)
+        loader.resumePosition = 90
+        model.interrupt(reason: "lost")
+
+        await model.handleWake()
+
+        #expect(loader.reconnectCount == 1)
+        #expect(loader.loadedMedia.last?.currentTime == 87)
+        guard case .casting = model.state else {
+            Issue.record("Expected casting, got \(model.state)")
+            return
+        }
+    }
+
+    @Test func retriesTheResumeWhileTheNetworkComesBack() async throws {
+        let loader = FakeMediaLoader()
+        loader.reconnects = false
+        let model = PlaybackModel(
+            server: try successServer(),
+            power: FakePowerAssertion(),
+            sleeper: ImmediateSleeper()
+        )
+        await model.play(file: file(), connection: loader)
+        model.interrupt(reason: "lost")
+
+        await model.handleWake()
+
+        #expect(loader.reconnectCount == 3)
+        guard case .interrupted = model.state else {
+            Issue.record("Expected an interrupted cast, got \(model.state)")
+            return
+        }
+    }
+
+    @Test func recoversTheInterruptedCastWithoutAWake() async throws {
+        let loader = FakeMediaLoader()
+        let power = FakePowerAssertion()
+        let model = PlaybackModel(server: try successServer(), power: power)
+        await model.play(file: file(), connection: loader)
+        loader.resumePosition = 12
+        model.interrupt(reason: "lost")
+
+        await model.recoverCast()
+
+        #expect(loader.reconnectCount == 1)
+        #expect(loader.loadedMedia.last?.currentTime == 9)
+        #expect(power.isActive)
+        guard case .casting = model.state else {
+            Issue.record("Expected casting, got \(model.state)")
+            return
+        }
+    }
+
+    @Test func leavesARunningCastAloneWhenTheMacWakes() async throws {
+        let server = try successServer()
+        let loader = FakeMediaLoader()
+        let model = PlaybackModel(server: server, power: FakePowerAssertion())
+        await model.play(file: file(), connection: loader)
+
+        await model.handleWake()
+
+        #expect(loader.reconnectCount == 0)
+        #expect(server.files.count == 1)
     }
 }

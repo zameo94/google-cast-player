@@ -4,13 +4,13 @@ Google Cast Player — Development
 Overall status: Phase 0 to Phase 7 on main and verified on a physical device; the Phase 8 release candidate is integrated into dev, with the release decision pending.
 Current development phase: Phase 8 — Stabilization and MVP Release (release candidate 1.0.0 integrated into dev; release approval pending).
 Current milestone: The release decision: signing, notarization and version tagging.
-Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev.
-Current working branch: dev, used only to integrate completed feature branches; feature work happens on feature/<name> branches.
-Last verified commit: main is be69da3; feature commits are listed in section 7.
+Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev; feature/sleep-and-reconnect (Phase 8), created from main at 565f112 and merged into dev; feature/volume-control (Phase 8) and fix/receiver-stop-position, both created from dev on 2026-11-26 and merged into dev.
+Current working branch: dev; feature work happens on feature/<name> branches. feature/volume-control and fix/receiver-stop-position, both created from dev at the maintainer's request, are integrated into dev.
+Last verified commit: main is 565f112; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
-Last verified test run: 148 unit tests passed with xcodebuild on 2026-11-25 (see section 6).
+Last verified test run: 188 unit tests passed with xcodebuild on 2026-11-26 (see section 6).
 Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
-Last remote synchronization: main matches origin/main at be69da3. dev is ahead of origin/dev with the release candidate; nothing has been pushed.
+Last remote synchronization: main matches origin/main at 565f112. dev is ahead of origin/dev with the release candidate; the sleep-and-reconnect branch is local only; nothing has been pushed.
 
 2. Verified Environment
 Verified on the development machine before this status was written:
@@ -117,6 +117,23 @@ Phase 8 — stabilization and release candidate:
 * The README now documents installation, permissions, supported formats, security and privacy, and known limitations.
 * Security review, as far as this environment allows: the server serves one file behind an unguessable path, answers 404 elsewhere, caps request size, rejects malformed requests, stops with the cast, and never leaves the LAN; the device certificate is accepted because Cast devices are self-signed; the HTTP traffic itself is plain, which is documented as a trusted-LAN assumption.
 * 2 additional unit tests (148 in total) covering the receiver-stopped path in the client and in the connection state.
+* `CastPowerAssertion` holds one `ProcessInfo` activity with `userInitiated` and `idleSystemSleepDisabled` for the whole duration of a cast: the process stays out of App Nap and the Mac stays out of idle sleep, so locking the screen or letting the display turn off no longer kills the media server and the device connection.
+* The heartbeat now notices a session that stopped answering: a send failure or 45 seconds without any inbound message ends the connection, and `TLSCastTransport` closes a connection that fails after it was ready. A dead socket is reported instead of shown as connected.
+* A lost connection during a cast becomes a new `interrupted` playback state that keeps the file and the last reported position, with Resume and Stop in place of the controls.
+* The application watches `NSWorkspace.didWakeNotification`; after a wake it reconnects the session, reloads the file at the last position, and retries while the network comes back.
+* `CastClient.Media` carries the start position, so a resumed cast continues where the device stopped instead of starting over.
+* Closing the lid still sleeps the Mac, which no application can prevent; README documents that, the clamshell and `pmset disablesleep` options, and how to check the assertion with `pmset -g assertions`.
+* A lost session no longer puts the Mac to sleep before recovery can run: the assertion stays held through the recovery attempts, which now also start without waiting for a wake. Giving up releases it.
+* The cast lifecycle is written to the unified log (play, cast started and failed, interrupt with its reason, resume position, recovery outcome, connection lost, receiver stopped, silent device, media server listening and refusals), so a session that ends hours later can be explained with `log show`.
+* The media server accepts up to 16 simultaneous connections and logs a refusal, so a temporary backlog cannot silently starve the receiver.
+* Verification of the block above: `pmset -g log` shows the cast assertion held for 1h31m09s with the display off and on battery on 2026-11-25, so the idle-sleep and App Nap protection is observed behaviour rather than a unit test only. The wake recovery, the loss recovery and the diagnostics are covered by unit tests; the real cast that ended after those 1h31 took the app down with it (the app released the assertion, the Mac slept 5 seconds later) and the cause is not recorded, because the app wrote nothing to the unified log at the time.
+* Volume control: the client reads the volume block of every receiver status (including the launch answer), sends `SET_VOLUME` with a request id and a level clamped to 0...1, the connection model exposes it and clears it when the session ends, and `PlaybackControls` shows a slider that sends on release and displays the reported level.
+* Mute toggle: the speaker button sends `SET_VOLUME` with only the `muted` field, so the device keeps its level, and the icon follows the state the device reports.
+* Resuming after the device stops its receiver (for example when the session is ended from the Google Home app) no longer restarts the video from the beginning: the client published an empty media status before reporting the stop, which erased the position the resume needs. It now reports the stop first and lets the model keep its own status.
+* A resumed cast starts three seconds before the stop position, never below zero, so the viewer regains the context of the scene; the rewind applies to every resume path (receiver stop, lost connection, wake).
+* 2 additional unit tests (188 in total): one drives a real client and connection model through a scripted transport up to a receiver stop and asserts the kept position, the other pins the rewind and its floor at the start of the media.
+* 13 additional unit tests (186 in total) covering the volume parsing, the command payloads, the clamping, the mute command, the refusals without a session, the model forwarding and the reset on disconnect.
+* 25 additional unit tests (173 in total) covering the power assertion lifetime, the interrupted cast, the resume path, the wake and loss recovery attempts, the assertion kept during recovery, the lost-connection reporting, the reconnect and the position carried into a resumed load.
 
 4. In Progress
 * The release decision is open: no tag, no signing identity and no notarization have been chosen, so 1.0.0 is a built candidate rather than a published release.
@@ -146,7 +163,7 @@ Test:
 Verified on 2026-11-25 with Xcode 27.2:
 
 * Clean Debug build succeeded with no compiler warnings.
-* Test run succeeded: 148 tests in 16 suites. The Release configuration builds; tests run in Debug because they use `@testable`.
+* Test run succeeded: 148 tests in 16 suites on 2026-11-25, 173 in 17 suites with the sleep work, 186 in 17 suites with volume and mute control, 187 with the receiver-stop position fix, and 188 with the resume rewind, all on 2026-11-26. The Release configuration builds; tests run in Debug because they use `@testable`.
 * The built application launches, keeps running and quits cleanly.
 * An offscreen render confirmed the layout of the video states. The new screen hosts a scroll view, which the offscreen renderer cannot draw, so the device section is a manual check.
 * Discovery was verified end to end against a Bonjour service registered on this machine: the browser reported the device once with its TXT record, and reported it removed when the service stopped. The test host itself cannot browse, because macOS gives it no local network access without a user decision.
@@ -162,8 +179,10 @@ Manual checks (require a graphical session and cannot be automated on this machi
 7. Allow local network access when macOS asks; the device section must list the Cast devices on the network.
 8. Select a device; the selection must be visible and must survive other devices appearing.
 9. Turn the selected device off or block its network; the device must disappear and its selection must be cleared.
+10. Start a cast, then lock the screen and let the display turn off; the video must keep playing. `pmset -g assertions` must list a `PreventUserIdleSystemSleep` assertion owned by GoogleCastPlayer while the cast runs.
+11. With a cast running, close the lid, wait, then open it; the application must reconnect and resume the video where it stopped. A device that does not answer must leave the interrupted state with Resume and Stop instead of a session that only looks connected.
 
-Status of these checks: on 2026-11-25 the user exercised the import flow, the metadata display and the verdict (items 1, 2, 3, 4 and 6) and, on a Google TV, local network access, the device list, the selection, the session, casting a compatible MP4, the playback controls (play, pause, seek and the duration bar) and the Stop and Disconnect actions (items 7 and 8, plus the cast flow). Item 5 (unreadable container) and item 9 (device turned off while connected) were not exercised.
+Status of these checks: on 2026-11-25 the user exercised the import flow, the metadata display and the verdict (items 1, 2, 3, 4 and 6) and, on a Google TV, local network access, the device list, the selection, the session, casting a compatible MP4, the playback controls (play, pause, seek and the duration bar) and the Stop and Disconnect actions (items 7 and 8, plus the cast flow). Item 5 (unreadable container), item 9 (device turned off while connected) and items 10 and 11 (screen lock and lid close, added with the wake work) were not exercised. Items 10 and 11 need the maintainer's machine: the power behaviour cannot be observed from the test host.
 
 Note: the verdict describes the container and codecs only. Actual playback on a receiver is not verified and is not promised by the label.
 
@@ -215,9 +234,20 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-25 | feature/playback-controls | Media status parsing, playback commands and the transport controls | 146 tests passed; gga required app-level playback types and deterministic timeout tests | c721470 |
 | 2026-11-25 | dev | Integrated the Phase 7 branch | Build and tests re-run on dev after the merge | see section 6 |
 | 2026-11-25 | main | Pull request #8 merged dev into main | Build and tests verified on dev before the merge | be69da3 |
-| 2026-11-25 | feature/release-stabilization | Receiver-stop handling, accessibility labels, release documentation and version 1.0.0 | 148 tests passed in Debug, Release build succeeded | this commit |
-| 2026-11-25 | dev | Integrated the release candidate; the user confirmed the full cast flow and the playback controls on a Google TV | Build and tests re-run on dev after the merge | this merge |
+| 2026-11-25 | feature/release-stabilization | Receiver-stop handling, accessibility labels, release documentation and version 1.0.0 | 148 tests passed in Debug, Release build succeeded | e8e3688 |
+| 2026-11-25 | dev | Integrated the release candidate; the user confirmed the full cast flow and the playback controls on a Google TV | Build and tests re-run on dev after the merge | 711c06e |
 | 2026-11-25 | dev | Integrated the Phase 3 branch | Build and tests re-run on dev after the merge | see section 6 |
+| 2026-11-25 | feature/sleep-and-reconnect | Lost connections are reported, the session keeps the position and a reconnect opens a new session | 170 tests passed in Debug; gga rejected a polling test helper and a swallowed send error, both fixed | e3dfabb |
+| 2026-11-25 | feature/sleep-and-reconnect | Cast power assertion, interrupted cast state, wake watcher and automatic resume at the last position | 170 tests passed in Debug, Release build succeeded; gga passed | d087878 |
+| 2026-11-25 | feature/sleep-and-reconnect | Transport stores its connection before `connect()` returns | 170 tests passed in Debug; gga passed | 88fcdc6 |
+| 2026-11-26 | feature/sleep-and-reconnect | Unified-log diagnostics, the wake lock kept through recovery and recovery that starts without a wake | 173 tests passed in Debug, Release build succeeded; found after a real 1h31 cast ended and the Mac slept in 5 seconds | c335b94 |
+| 2026-11-26 | dev | Integrated the sleep-and-reconnect branch, approved by the maintainer | 173 tests re-run on dev after the merge | 588d2d9 |
+| 2026-11-26 | feature/volume-control | Volume slider for the device, reported level and `SET_VOLUME` | 182 tests passed in Debug at that commit (186 after the mute toggle), Release build succeeded; gga rejected the UI reading a Cast type and it now maps to DeviceVolume | 828cd23 |
+| 2026-11-26 | feature/volume-control | Mute toggle and review cleanups in the client (unthrown error case, empty LOAD payload, event-based test wait) | 186 tests passed in Debug, Release build succeeded; gga passed | 8e7eea8 |
+| 2026-11-26 | dev | Integrated the volume-control branch, approved by the maintainer after testing the volume and mute controls | 186 tests re-run on dev after the merge | cb3c9b0 |
+| 2026-11-26 | fix/receiver-stop-position | Resume after a device-side receiver stop keeps its position; found by the maintainer testing the Google Home session removal | 187 tests passed in Debug (the new test failed before the fix), Release build succeeded | 92fea8d |
+| 2026-11-26 | fix/receiver-stop-position | Resume rewinds three seconds before the stop position, so the scene context comes back | 188 tests passed in Debug, Release build succeeded; gga passed | e6e5229 |
+| 2026-11-26 | dev | Integrated the receiver-stop-position branch, approved by the maintainer after testing the resume | 188 tests re-run on dev after the merge | a2ceab1 |
 
 8. Blockers and Risks
 No active blocker.
@@ -232,7 +262,8 @@ Risks and pending verification:
 * Casting again without stopping first stops the previous server, so an older session loses its media source; the window offers Stop for that, and broadcasting a replacement session belongs to the playback work.
 * The media server speaks plain HTTP with no authentication beyond the unguessable per-session path. It is meant for a trusted local network and only while a session needs it; the server is not exposed outside the LAN by the app.
 * The server runs only while a cast is active: `PlaybackModel` starts it for the selected file and stops it when the cast ends, and its behaviour is covered by tests.
-* The interactive checklist was exercised by the user on a Google TV; items 5 (unreadable container) and 9 (device turned off while connected) were not exercised.
+* The interactive checklist was exercised by the user on a Google TV; items 5 (unreadable container), 9 (device turned off while connected), 10 (screen lock and display sleep) and 11 (lid close and wake recovery) were not exercised.
+* The cast power assertion and the wake recovery are covered by unit tests only. Whether macOS honours the assertion on this Mac, and how the device behaves while the Mac sleeps, can only be verified with items 10 and 11 of section 6 on the maintainer's machine.
 * The position shown between status updates is interpolated locally, so it can drift by a second until the next status arrives; seeking is sent only when the slider is released.
 * The compatibility verdict describes the container and codecs only. Real playback on a receiver is unverified, so the interface never labels a file as playable, only as matching or not matching the format profile.
 * Interactive and visual checks are manual: the shell has neither screen recording nor accessibility permission, and there is no UI test target. Section 6 records which checks the user exercised and which are still pending.

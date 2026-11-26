@@ -16,6 +16,10 @@ final class FakeCastSession: CastSessionControlling {
     private(set) var seekPositions: [TimeInterval] = []
     var onMediaStatusChange: ((CastClient.MediaStatus?) -> Void)?
     var onReceiverStopped: (() -> Void)?
+    var onConnectionEnded: (() -> Void)?
+    var onVolumeChange: ((CastClient.Volume?) -> Void)?
+    private(set) var volumeLevels: [Double] = []
+    private(set) var mutedValues: [Bool] = []
     var loadError: (any Error)?
 
     init(result: Result<String, any Error> = .success("web-5")) {
@@ -48,6 +52,14 @@ final class FakeCastSession: CastSessionControlling {
 
     func stopMediaPlayback() async {
         stopMediaCount += 1
+    }
+
+    func setVolume(_ level: Double) async {
+        volumeLevels.append(level)
+    }
+
+    func setMuted(_ muted: Bool) async {
+        mutedValues.append(muted)
     }
 
     func stop() async {
@@ -269,5 +281,182 @@ struct CastConnectionModelTests {
         #expect(second.startCount == 1)
         #expect(connection.state == .connected)
         #expect(connection.receiverTransportID == "web-5")
+    }
+
+    // MARK: - Lost connections
+
+    @Test func reportsWhenTheTransportEnds() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+
+        session.onConnectionEnded?()
+
+        #expect(connection.state == .failed(CastConnectionModel.connectionLostMessage))
+        #expect(!connection.isConnected)
+        #expect(connection.receiverTransportID == nil)
+    }
+
+    @Test func keepsThePositionSoALostCastCanBeResumed() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+        // Paused, so the position is the reported one and not a value the elapsed time
+        // since the report moved forward.
+        session.onMediaStatusChange?(
+            CastClient.MediaStatus(mediaSessionID: 7, playerState: .paused, position: 30, duration: 90, idleReason: nil)
+        )
+
+        session.onConnectionEnded?()
+
+        #expect(connection.resumePosition == 30)
+        #expect(connection.mediaStatus == nil)
+    }
+
+    @Test func forgetsThePositionWhenTheUserDisconnects() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+        session.onMediaStatusChange?(
+            CastClient.MediaStatus(mediaSessionID: 7, playerState: .paused, position: 30, duration: 90, idleReason: nil)
+        )
+
+        await connection.disconnect()
+
+        #expect(connection.resumePosition == nil)
+    }
+
+    @Test func keepsThePositionWhenTheDeviceStopsTheReceiver() async throws {
+        let transport = ScriptedCastTransport()
+        let client = CastClient(transport: transport)
+        let connection = CastConnectionModel(makeSession: { _ in client })
+
+        let connecting = Task { await connection.connect(to: device()) }
+        await transport.waitForSentFrames(2)
+        transport.push(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.receiver,
+                payload: #"{"type":"RECEIVER_STATUS","status":{"applications":[{"appId":"CC1AD845","transportId":"web-5"}],"volume":{"level":1,"muted":false}}}"#
+            )
+        )
+        await connecting.value
+        #expect(connection.state == .connected)
+
+        client.handle(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.media,
+                payload: #"{"type":"MEDIA_STATUS","status":[{"mediaSessionId":7,"playerState":"PAUSED","currentTime":42,"media":{"duration":600}}]}"#
+            ).framed()
+        )
+        #expect(connection.mediaStatus?.position == 42)
+
+        client.handle(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.receiver,
+                payload: #"{"type":"RECEIVER_STATUS","status":{"applications":[],"volume":{"level":1,"muted":false}}}"#
+            ).framed()
+        )
+
+        #expect(connection.state == .failed("The device stopped the receiver. Connect again to continue."))
+        #expect(connection.resumePosition == 42)
+    }
+
+    @Test func reconnectsWithANewSessionAfterTheTransportDied() async {
+        let first = FakeCastSession()
+        let second = FakeCastSession()
+        var sessions = [first, second]
+        let connection = CastConnectionModel(makeSession: { _ in sessions.removeFirst() })
+        await connection.connect(to: device())
+        first.onConnectionEnded?()
+
+        await connection.reconnect()
+
+        #expect(first.stopCount == 1)
+        #expect(second.startCount == 1)
+        #expect(connection.state == .connected)
+        #expect(connection.connectedDevice?.id == "living-room")
+    }
+
+    // MARK: - Volume
+
+    @Test func keepsTheVolumeTheSessionReports() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+
+        session.onVolumeChange?(CastClient.Volume(level: 0.35, muted: true))
+
+        #expect(connection.volume == DeviceVolume(level: 0.35, muted: true))
+    }
+
+    @Test func forwardsAVolumeChange() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+
+        await connection.setVolume(0.7)
+
+        #expect(session.volumeLevels == [0.7])
+    }
+
+    @Test func ignoresAVolumeChangeWithoutASession() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+
+        await connection.setVolume(0.7)
+
+        #expect(session.volumeLevels.isEmpty)
+    }
+
+    @Test func forwardsAMuteChange() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+
+        await connection.setMuted(true)
+
+        #expect(session.mutedValues == [true])
+    }
+
+    @Test func ignoresAMuteChangeWithoutASession() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+
+        await connection.setMuted(true)
+
+        #expect(session.mutedValues.isEmpty)
+    }
+
+    @Test func forgetsTheVolumeWhenDisconnecting() async {
+        let session = FakeCastSession()
+        let connection = model(session: session)
+        await connection.connect(to: device())
+        session.onVolumeChange?(CastClient.Volume(level: 0.4, muted: false))
+
+        await connection.disconnect()
+
+        #expect(connection.volume == nil)
+    }
+
+    @Test func reconnectKeepsThePositionOfTheLostCast() async {
+        let first = FakeCastSession()
+        let second = FakeCastSession()
+        var sessions = [first, second]
+        let connection = CastConnectionModel(makeSession: { _ in sessions.removeFirst() })
+        await connection.connect(to: device())
+        first.onMediaStatusChange?(
+            CastClient.MediaStatus(mediaSessionID: 7, playerState: .paused, position: 42, duration: 90, idleReason: nil)
+        )
+        first.onConnectionEnded?()
+
+        await connection.reconnect()
+
+        #expect(connection.resumePosition == 42)
     }
 }
