@@ -31,6 +31,12 @@ human work.
 
 ## How it was built
 
+The idea, the plan and the architecture were under human direction: how the responsibilities are
+separated, and with them how the project is tested — unit, integration, HTTP and UI
+layers — together with every product decision and every check that only a real television
+could answer. The implementation followed that plan module by module, with a review gate
+before each commit and my review before each merge.
+
 The application was developed with a coding agent as the orchestrator, backed by a fixed
 set of tools. Each change was checked by compiling, by running the test suite and, where
 only real hardware could tell, on a real television:

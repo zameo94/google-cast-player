@@ -311,22 +311,29 @@ Commit Rules
 8. Run GGA before committing whenever its configured rules and file patterns apply.
 9. Never bypass Git hooks, GGA, or other quality checks to force a commit.
 10. Inspect the actual Git hook configuration and verify that hooks are executable and effective.
-Automatic Local Commits
-The agent is authorized to create local Git commits automatically when:
+Commits Require an Explicit Request
+The agent does not commit on its own. Implementation, tests and quality checks finish with
+the changes left uncommitted in the working tree, so the user can test the work and give
+the final review.
+When the user asks for the commit, the agent commits only when:
 * The changes belong to the approved task.
+* The user has tested or approved the work.
 * The staged diff has been inspected.
 * Applicable builds and tests pass.
 * Applicable GGA checks pass.
 * No unrelated user changes are included.
-The agent must not wait for user approval between ordinary development steps or between valid local commits.
+The request also covers integrating the feature branch into dev, unless the user asks for
+the commit alone. A commit the user did not request is never created, even when every
+check passes.
 If a check fails:
 1. Investigate the failure.
 2. Attempt reasonable fixes within the approved scope.
 3. Rerun the relevant checks.
-4. Commit only after the required checks pass.
+4. Commit only after the required checks pass and the user asks.
 Never commit failing or unverified work as though it were complete.
 Operations Requiring Approval
 The following operations require explicit user approval:
+* Creating local commits.
 * Pushing commits or branches to any remote.
 * Creating or submitting Pull Requests.
 * Merging feature branches into dev.
@@ -334,7 +341,7 @@ The following operations require explicit user approval:
 * Publishing releases or tags.
 * Amending, rebasing, resetting, or rewriting existing shared history.
 * Destructive Git operations.
-Local branch creation, local commits, builds, and tests do not require additional approval when compliant with this document.
+Local branch creation, builds, and tests do not require additional approval when compliant with this document.
 12. Testing Strategy
 Testing is a required part of development, not an optional final step.
 Every implemented feature must have appropriate tests covering expected behavior, failure modes, and relevant edge cases.
@@ -527,17 +534,17 @@ When a mission includes multiple tasks:
 6. Implement one independent feature at a time.
 7. Build and test each meaningful increment.
 8. Run applicable GGA checks.
-9. Create small local commits after successful verification.
+9. Leave the verified changes uncommitted for the user's test and final review; commit and integrate into dev only when the user asks.
 10. Continue to the next planned task when its dependencies are satisfied.
 11. Report meaningful milestones and blockers.
 12. Provide a final mission report.
-The agent must not stop after every small implementation step, successful test, or local commit to ask the user whether it may continue.
+The agent must not stop after every small implementation step or successful test to ask the user whether it may continue. It may continue through the mission and report when the work is ready for the user's test.
 The agent must not require the user to manually create branches, run ordinary tests, or authorize normal local development operations.
 16.2 Automatic Continuation
 After completing a focused task:
 * Verify its acceptance criteria.
 * Run relevant checks.
-* Review and commit the changes locally when all required checks pass.
+* Leave the verified changes ready for the user's test and review, without committing.
 * Update the mission's internal task status.
 * Proceed to the next planned task if possible.
 Continue working until:
@@ -577,7 +584,7 @@ The agent may autonomously:
 * Run GGA and other configured checks.
 * Fix failures.
 * Delegate independent analysis and review.
-* Create local commits after successful verification.
+* Commit and integrate into dev when the user asks, after the required checks pass.
 * Continue through the approved mission.
 The agent must obtain explicit approval before:
 * Pushing to a remote.
@@ -672,7 +679,7 @@ Run all checks that are actually applicable to the existing repository.
 Do not invent an Xcode scheme, test target, application target, or successful test result.
 Verify the repository configuration, Git branch structure, hook behavior, GGA behavior, and CI configuration to the extent possible.
 18.5 Bootstrap Commit
-If all applicable checks pass:
+If all applicable checks pass and the user asks for the commit:
 * Review the staged diff.
 * Stage only files belonging to the repository-bootstrap task.
 * Create small, coherent local commits.
@@ -688,7 +695,7 @@ After the repository infrastructure is established:
 Do not silently expand the scope of the bootstrap mission into the complete application implementation.
 Proceed with application development only within the approved mission scope.
 19. Final Operating Principle
-The agent is responsible for carrying out approved development work, including local Git management, implementation, testing, quality checks, delegation, and incremental commits.
+The agent is responsible for carrying out approved development work, including local Git management, implementation, testing, quality checks, delegation, and committing on request.
 The user should define goals, approve significant decisions, review milestones, and authorize remote operations.
 Do not turn ordinary development steps into repeated approval requests.
 Work autonomously, incrementally, transparently, and safely.
