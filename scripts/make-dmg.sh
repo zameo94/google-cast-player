@@ -8,7 +8,8 @@
 # no Screen Recording and no Input Monitoring.
 #
 # Usage:
-#   scripts/make-dmg.sh "build/Build/Products/Release/Google Cast Player.app"
+#   scripts/make-dmg.sh                       use the bundle build-release.sh produced
+#   scripts/make-dmg.sh "path/to/App.app"     package a specific bundle
 #   scripts/make-dmg.sh <app> --pretty     also arrange the window through Finder (optional)
 #   scripts/make-dmg.sh <app> --force      replace artifacts that already exist
 #
@@ -29,6 +30,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Relative arguments belong to the directory the caller is in, which is not the directory
+# this script moves to.
+INVOCATION_DIR="$PWD"
+# Both paths are resolved from the caller's directory, while it is still the current one:
+# $0 can be "make-dmg.sh", "./make-dmg.sh", "scripts/make-dmg.sh" or absolute.
+SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$ROOT"
 
 VOLUME_NAME="Google Cast Player"
@@ -40,7 +47,7 @@ FORCE=0
 APP=""
 
 usage() {
-  sed -n '5,30p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '5,32p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//'
 }
 
 while [ "$#" -gt 0 ]; do
@@ -68,10 +75,36 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$APP" ]; then
-  echo "error: the path of the application bundle is required." >&2
-  usage >&2
-  exit 2
+  # No argument: take the bundle build-release.sh produces. Exactly one is expected; the
+  # script refuses to guess between zero and several, so a stale or duplicated build
+  # cannot be packaged by accident.
+  BUILD_PRODUCTS="$ROOT/build/Build/Products/Release"
+  if [ ! -d "$BUILD_PRODUCTS" ]; then
+    echo "error: no bundle to package. Run scripts/build-release.sh first, or pass a path." >&2
+    usage >&2
+    exit 2
+  fi
+  FOUND="$(find "$BUILD_PRODUCTS" -maxdepth 1 -name '*.app' | sort)"
+  COUNT="$(printf '%s\n' "$FOUND" | grep -c . || true)"
+  if [ "$COUNT" -ne 1 ]; then
+    echo "error: expected exactly one application in $BUILD_PRODUCTS, found $COUNT." >&2
+    if [ -n "$FOUND" ]; then
+      printf '%s\n' "$FOUND" | sed 's/^/  /' >&2
+    fi
+    echo "error: pass the bundle path explicitly." >&2
+    exit 2
+  fi
+  APP="$FOUND"
+  echo "==> Packaging $APP"
+  echo "==> (from the build directory; no compilation involved)"
 fi
+
+# A relative path belongs to the directory the caller is in, which is not the repository
+# root this script moved to. Resolve it before it is used.
+case "$APP" in
+  /*) ;;
+  *) APP="$INVOCATION_DIR/$APP" ;;
+esac
 
 # The input must be a macOS application bundle, not merely something that exists.
 if [ ! -d "$APP" ]; then
