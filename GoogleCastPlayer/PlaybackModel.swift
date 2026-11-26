@@ -207,7 +207,9 @@ final class PlaybackModel {
               let connection else {
             return
         }
-        let position = connection.resumePosition
+        // A little context repeated, so the resume does not drop the viewer into the
+        // middle of a scene.
+        let position = connection.resumePosition.map { max(0, $0 - Self.resumeRewind) }
         state = .starting
         CastLog.playback.info("Resuming at \(position ?? 0, privacy: .public)s")
 
@@ -294,6 +296,8 @@ final class PlaybackModel {
         "The device did not answer after the connection was lost. Resume again, or connect again. \(reason)"
     }
 
+    /// Seconds before the stop position that a resumed cast starts from.
+    static let resumeRewind: TimeInterval = 3
     private static let recoveryAttempts = 3
     private static let retryDelay = Duration.seconds(2)
 

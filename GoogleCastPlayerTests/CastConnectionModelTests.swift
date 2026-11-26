@@ -326,6 +326,47 @@ struct CastConnectionModelTests {
         #expect(connection.resumePosition == nil)
     }
 
+    @Test func keepsThePositionWhenTheDeviceStopsTheReceiver() async throws {
+        let transport = ScriptedCastTransport()
+        let client = CastClient(transport: transport)
+        let connection = CastConnectionModel(makeSession: { _ in client })
+
+        let connecting = Task { await connection.connect(to: device()) }
+        await transport.waitForSentFrames(2)
+        transport.push(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.receiver,
+                payload: #"{"type":"RECEIVER_STATUS","status":{"applications":[{"appId":"CC1AD845","transportId":"web-5"}],"volume":{"level":1,"muted":false}}}"#
+            )
+        )
+        await connecting.value
+        #expect(connection.state == .connected)
+
+        client.handle(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.media,
+                payload: #"{"type":"MEDIA_STATUS","status":[{"mediaSessionId":7,"playerState":"PAUSED","currentTime":42,"media":{"duration":600}}]}"#
+            ).framed()
+        )
+        #expect(connection.mediaStatus?.position == 42)
+
+        client.handle(
+            CastMessage(
+                sourceID: CastClient.receiverID,
+                destinationID: CastClient.senderID,
+                namespace: CastClient.Namespace.receiver,
+                payload: #"{"type":"RECEIVER_STATUS","status":{"applications":[],"volume":{"level":1,"muted":false}}}"#
+            ).framed()
+        )
+
+        #expect(connection.state == .failed("The device stopped the receiver. Connect again to continue."))
+        #expect(connection.resumePosition == 42)
+    }
+
     @Test func reconnectsWithANewSessionAfterTheTransportDied() async {
         let first = FakeCastSession()
         let second = FakeCastSession()

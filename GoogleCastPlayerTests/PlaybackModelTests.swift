@@ -334,7 +334,7 @@ struct PlaybackModelTests {
         #expect(model.file == nil)
     }
 
-    @Test func resumesTheInterruptedCastAtTheLastPosition() async throws {
+    @Test func resumesTheInterruptedCastJustBeforeTheLastPosition() async throws {
         let server = try successServer()
         let loader = FakeMediaLoader()
         let model = PlaybackModel(server: server, power: FakePowerAssertion())
@@ -346,12 +346,25 @@ struct PlaybackModelTests {
 
         #expect(loader.reconnectCount == 1)
         #expect(loader.loadedMedia.count == 2)
-        #expect(loader.loadedMedia.last?.currentTime == 63)
+        #expect(loader.loadedMedia.last?.currentTime == 60)
         guard case .casting = model.state else {
             Issue.record("Expected casting, got \(model.state)")
             return
         }
         #expect(server.files.map(\.name) == ["movie.mp4", "movie.mp4"])
+    }
+
+    @Test func neverResumesBeforeTheStartOfTheMedia() async throws {
+        let server = try successServer()
+        let loader = FakeMediaLoader()
+        let model = PlaybackModel(server: server, power: FakePowerAssertion())
+        await model.play(file: file(), connection: loader)
+        loader.resumePosition = 1
+        model.interrupt(reason: "lost")
+
+        await model.resume()
+
+        #expect(loader.loadedMedia.last?.currentTime == 0)
     }
 
     @Test func keepsTheCastInterruptedWhenTheDeviceDoesNotAnswerAgain() async throws {
@@ -393,7 +406,7 @@ struct PlaybackModelTests {
         await model.handleWake()
 
         #expect(loader.reconnectCount == 1)
-        #expect(loader.loadedMedia.last?.currentTime == 90)
+        #expect(loader.loadedMedia.last?.currentTime == 87)
         guard case .casting = model.state else {
             Issue.record("Expected casting, got \(model.state)")
             return
@@ -431,7 +444,7 @@ struct PlaybackModelTests {
         await model.recoverCast()
 
         #expect(loader.reconnectCount == 1)
-        #expect(loader.loadedMedia.last?.currentTime == 12)
+        #expect(loader.loadedMedia.last?.currentTime == 9)
         #expect(power.isActive)
         guard case .casting = model.state else {
             Issue.record("Expected casting, got \(model.state)")
