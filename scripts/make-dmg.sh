@@ -1,179 +1,220 @@
 #!/usr/bin/env bash
 #
-# Builds the Release application and packages it into a disk image with the usual
-# drag-to-Applications window.
+# Packages an already built application into a disk image.
 #
-# Run by the maintainer before publishing a release, never by someone who installs the
-# app. The image is attached to a GitHub release, with its checksum and a small build
-# record next to it; nothing is committed, so the git history stays free of binaries.
+# It never compiles: no xcodebuild, no compiler, no Xcode build phase. The bundle arrives
+# as an argument, is validated, and is copied — never modified — into a disk image that is
+# then verified. It needs no administrative rights, no Full Disk Access, no Accessibility,
+# no Screen Recording and no Input Monitoring.
 #
 # Usage:
-#   scripts/make-dmg.sh
+#   scripts/make-dmg.sh "build/Build/Products/Release/Google Cast Player.app"
+#   scripts/make-dmg.sh <app> --pretty     also arrange the window through Finder (optional)
+#   scripts/make-dmg.sh <app> --force      replace artifacts that already exist
 #
 # Output, under dist/:
-#   <product>-<version>.dmg            the disk image to attach to the release
+#   <product>-<version>.dmg            the image to attach to a release
 #   <product>-<version>.dmg.sha256     the digest, usable with `shasum -a 256 -c`
 #   <product>-<version>.dmg.build.txt  commit, version and build time
 #
-# The working tree must be clean: an artifact must correspond to committed source, not to
-# whatever happened to be in the tree.
+# Without --pretty the image is produced with no AppleScript at all and the window keeps
+# Finder's default layout. --pretty needs this terminal to be allowed to control Finder
+# (System Settings > Privacy & Security > Automation); if the permission is missing the
+# image is still produced, with the default layout, and the script says so. The permission
+# is never a condition for packaging.
 #
-# The window layout is Finder state stored in the image's .DS_Store, which Finder only
-# writes for a volume mounted under /Volumes. Writing it needs the terminal to be allowed
-# to control Finder (System Settings > Privacy & Security > Automation); when that is not
-# allowed the image is still produced with Finder's default layout and the script says so.
+# Existing artifacts are never replaced silently: without --force the script refuses and
+# lists what is in the way.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-PROJECT="GoogleCastPlayer.xcodeproj"
-SCHEME="GoogleCastPlayer"
 VOLUME_NAME="Google Cast Player"
-BACKGROUND="$ROOT/assets/dmg-background.png"
 LAYOUT="$ROOT/scripts/dmg-layout.conf"
-LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-MOUNT_POINT="/Volumes/$VOLUME_NAME"
+BACKGROUND="$ROOT/assets/dmg-background.png"
+OUT_DIR="$ROOT/dist"
+PRETTY=0
+FORCE=0
+APP=""
 
-if [ ! -f "$LAYOUT" ]; then
-  echo "error: $LAYOUT is missing; it holds the window geometry shared with the artwork." >&2
+usage() {
+  sed -n '5,30p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --pretty) PRETTY=1 ;;
+    --force) FORCE=1 ;;
+    -h|--help) usage; exit 0 ;;
+    --)
+      shift
+      ;;
+    -*)
+      echo "error: unknown option $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      if [ -n "$APP" ]; then
+        echo "error: only one application path is accepted." >&2
+        exit 2
+      fi
+      APP="$1"
+      ;;
+  esac
+  shift
+done
+
+if [ -z "$APP" ]; then
+  echo "error: the path of the application bundle is required." >&2
+  usage >&2
+  exit 2
+fi
+
+# The input must be a macOS application bundle, not merely something that exists.
+if [ ! -d "$APP" ]; then
+  echo "error: no application bundle at $APP" >&2
   exit 1
 fi
-# shellcheck source=scripts/dmg-layout.conf
-. "$LAYOUT"
+case "$APP" in
+  *.app) ;;
+  *)
+    echo "error: $APP does not end in .app" >&2
+    exit 1
+    ;;
+esac
+APP="$(cd "$APP/.." && pwd)/$(basename "$APP")"
+INFO_PLIST="$APP/Contents/Info.plist"
+if [ ! -f "$INFO_PLIST" ]; then
+  echo "error: $APP has no Contents/Info.plist, so it is not a macOS bundle." >&2
+  exit 1
+fi
+EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$INFO_PLIST" 2>/dev/null || true)"
+if [ -z "$EXECUTABLE" ] || [ ! -x "$APP/Contents/MacOS/$EXECUTABLE" ]; then
+  echo "error: $APP does not contain the executable its Info.plist names." >&2
+  exit 1
+fi
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST" 2>/dev/null || true)"
+if [ -z "$VERSION" ]; then
+  echo "error: $APP does not declare CFBundleShortVersionString." >&2
+  exit 1
+fi
 
-BUILD_DIR=""
+# A bundled application that cannot be verified is not packaged.
+echo "==> Verifying the signature of $(basename "$APP")"
+codesign --verify --deep --strict "$APP"
+
+APP_NAME="$(basename "$APP")"
+# The bundle keeps the spaced name Finder shows; the download drops the spaces.
+ARTIFACT_BASE="${APP_NAME%.app}"
+ARTIFACT_BASE="${ARTIFACT_BASE// /}"
+OUT="$OUT_DIR/$ARTIFACT_BASE-$VERSION.dmg"
+SHA_FILE="$OUT.sha256"
+BUILD_FILE="$OUT.build.txt"
+
+if [ "$FORCE" -ne 1 ]; then
+  existing=""
+  for candidate in "$OUT" "$SHA_FILE" "$BUILD_FILE"; do
+    if [ -e "$candidate" ]; then
+      existing="$existing
+  $candidate"
+    fi
+  done
+  if [ -n "$existing" ]; then
+    echo "error: these artifacts already exist:$existing" >&2
+    echo "error: pass --force to replace them deliberately." >&2
+    exit 1
+  fi
+fi
+
+if [ "$PRETTY" -eq 1 ]; then
+  if [ ! -f "$LAYOUT" ]; then
+    echo "error: $LAYOUT is missing; it holds the window geometry." >&2
+    exit 1
+  fi
+  # shellcheck source=scripts/dmg-layout.conf
+  . "$LAYOUT"
+  MOUNT_POINT="/Volumes/$VOLUME_NAME"
+  if mount | grep -qF " on $MOUNT_POINT ("; then
+    echo "error: a volume named \"$VOLUME_NAME\" is already mounted. Eject it and retry." >&2
+    exit 1
+  fi
+  if [ -d "$MOUNT_POINT" ] && ! rmdir "$MOUNT_POINT" 2>/dev/null; then
+    echo "error: $MOUNT_POINT exists, is not empty, and nothing is mounted on it. Inspect it by hand." >&2
+    exit 1
+  fi
+else
+  MOUNT_POINT=""
+fi
+
+# Everything temporary is created by this run, under a directory this run owns.
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/castplayer-dmg.XXXXXX")"
 MOUNTED=0
 
 cleanup() {
   status=$?
   if [ "$MOUNTED" -eq 1 ]; then
-    if hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null; then
+    if hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || hdiutil detach "$TMP_DIR/mnt" -quiet 2>/dev/null; then
       MOUNTED=0
     else
-      echo "warning: the volume could not be detached; it is still mounted at $MOUNT_POINT" >&2
-      echo "warning: keeping $BUILD_DIR, because deleting it would remove the image behind the mounted volume" >&2
+      echo "warning: a volume could not be detached; keeping $TMP_DIR so its image is not removed" >&2
       exit "$status"
     fi
   fi
-  if [ -n "$BUILD_DIR" ]; then
-    rm -rf "$BUILD_DIR"
-  fi
+  rm -rf "$TMP_DIR"
   exit "$status"
 }
 trap cleanup EXIT
 
-if [ -n "$(git status --porcelain)" ]; then
-  echo "error: the working tree is not clean. Commit or stash the changes first, so the image matches a committed revision." >&2
-  exit 1
-fi
-
-if mount | grep -qF " on $MOUNT_POINT ("; then
-  echo "error: a volume named \"$VOLUME_NAME\" is already mounted. Eject it and retry." >&2
-  exit 1
-fi
-if [ -d "$MOUNT_POINT" ]; then
-  # An interrupted run can leave the mount point directory behind; a plain directory is
-  # not a mounted volume, so it cannot be ejected and must not block the next run.
-  if rmdir "$MOUNT_POINT" 2>/dev/null; then
-    echo "==> Removed a stale mount point left by an earlier run"
-  else
-    echo "error: $MOUNT_POINT exists, is not empty, and nothing is mounted on it. Inspect it by hand." >&2
-    exit 1
-  fi
-fi
-
-# Everything temporary lives outside the worktree, so no build output can be committed.
-BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/castplayer-dmg.XXXXXX")"
-RW_IMAGE="$BUILD_DIR/read-write.dmg"
-BUILD_LOG="$BUILD_DIR/xcodebuild.log"
-
-echo "==> Building $SCHEME (Release)"
-if ! xcodebuild \
-  -project "$PROJECT" \
-  -scheme "$SCHEME" \
-  -configuration Release \
-  -destination 'platform=macOS' \
-  -derivedDataPath "$BUILD_DIR" \
-  build >"$BUILD_LOG" 2>&1
-then
-  FAILURE_LOG="$ROOT/dist/xcodebuild-failure.log"
-  mkdir -p "$ROOT/dist"
-  cp "$BUILD_LOG" "$FAILURE_LOG"
-  echo "error: the Release build failed." >&2
-  echo "error: the full log is kept at $FAILURE_LOG; its last lines:" >&2
-  tail -40 "$BUILD_LOG" >&2
-  exit 1
-fi
-
-# The built bundle is the source of truth for the application name, so nothing has to
-# restate it: the product, the bundle and the artifact all come from here.
-PRODUCTS="$BUILD_DIR/Build/Products/Release"
-APP_COUNT="$(find "$PRODUCTS" -maxdepth 1 -name '*.app' | wc -l | tr -d ' ')"
-if [ "$APP_COUNT" -ne 1 ]; then
-  echo "error: expected exactly one application in $PRODUCTS, found $APP_COUNT" >&2
-  exit 1
-fi
-APP="$(find "$PRODUCTS" -maxdepth 1 -name '*.app' | head -1)"
-APP_NAME="$(basename "$APP")"
-# The bundle keeps the spaced name Finder shows; the download drops the spaces.
-ARTIFACT_BASE="${APP_NAME%.app}"
-ARTIFACT_BASE="${ARTIFACT_BASE// /}"
-
-VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
-STAGE="$BUILD_DIR/stage"
-OUT_DIR="$ROOT/dist"
-OUT="$OUT_DIR/$ARTIFACT_BASE-$VERSION.dmg"
-
-echo "==> Verifying the signature of the built application"
-codesign --verify --deep --strict "$APP"
+STAGE="$TMP_DIR/stage"
+RW_IMAGE="$TMP_DIR/read-write.dmg"
+FINAL_IMAGE="$TMP_DIR/final.dmg"
 
 echo "==> Staging the disk image contents"
-mkdir -p "$STAGE" "$OUT_DIR"
-cp -R "$APP" "$STAGE/"
+mkdir -p "$STAGE"
+# A copy, so the original bundle is never modified.
+ditto "$APP" "$STAGE/$APP_NAME"
 ln -s /Applications "$STAGE/Applications"
 
 echo "==> Creating a writable image"
 hdiutil create \
   -volname "$VOLUME_NAME" \
   -srcfolder "$STAGE" \
-  -ov \
   -format UDRW \
   "$RW_IMAGE" >/dev/null
 
-# The mount point is explicit, so no parsing of the attach output is needed and no
-# later step depends on an assumed path. The preflight proved the point was free.
-hdiutil attach "$RW_IMAGE" -mountpoint "$MOUNT_POINT" -nobrowse -noautoopen >/dev/null
-if [ ! -d "$MOUNT_POINT" ]; then
-  echo "error: the image was not mounted at $MOUNT_POINT" >&2
-  exit 1
-fi
-MOUNTED=1
+echo "==> Mounting"
+if [ "$PRETTY" -eq 1 ]; then
+  # Finder only writes window state for a volume under /Volumes.
+  hdiutil attach "$RW_IMAGE" -mountpoint "$MOUNT_POINT" -nobrowse -noautoopen >/dev/null
+  if [ ! -d "$MOUNT_POINT" ]; then
+    echo "error: the image was not mounted at $MOUNT_POINT" >&2
+    exit 1
+  fi
+  MOUNTED=1
 
-BACKGROUND_FILE=""
-if [ -f "$BACKGROUND" ]; then
-  mkdir -p "$MOUNT_POINT/.background"
-  cp "$BACKGROUND" "$MOUNT_POINT/.background/dmg-background.png"
-  BACKGROUND_FILE="$MOUNT_POINT/.background/dmg-background.png"
-fi
+  BACKGROUND_FILE=""
+  if [ -f "$BACKGROUND" ]; then
+    mkdir -p "$MOUNT_POINT/.background"
+    cp "$BACKGROUND" "$MOUNT_POINT/.background/dmg-background.png"
+    BACKGROUND_FILE="$MOUNT_POINT/.background/dmg-background.png"
+  fi
 
-# The window geometry comes from scripts/dmg-layout.conf, which the background generator
-# reads too: the image is drawn at twice these points, and the chevron is derived from the
-# icon positions, so the two cannot drift apart.
-echo "==> Arranging the window"
-FINDER_LOG="$BUILD_DIR/osascript.log"
-if DMG_VOLUME_NAME="$VOLUME_NAME" \
-  DMG_BACKGROUND_FILE="$BACKGROUND_FILE" \
-  DMG_APP_NAME="$APP_NAME" \
-  DMG_LEFT="$WINDOW_LEFT" \
-  DMG_TOP="$WINDOW_TOP" \
-  DMG_RIGHT="$WINDOW_RIGHT" \
-  DMG_BOTTOM="$WINDOW_BOTTOM" \
-  DMG_APP_X="$APP_X" \
-  DMG_APPS_X="$APPS_X" \
-  DMG_ICON_Y="$ICON_Y" \
-  osascript >"$FINDER_LOG" 2>&1 <<'APPLESCRIPT'
+  echo "==> Arranging the window (optional, through Finder)"
+  FINDER_LOG="$TMP_DIR/osascript.log"
+  if DMG_VOLUME_NAME="$VOLUME_NAME" \
+    DMG_BACKGROUND_FILE="$BACKGROUND_FILE" \
+    DMG_APP_NAME="$APP_NAME" \
+    DMG_LEFT="$WINDOW_LEFT" \
+    DMG_TOP="$WINDOW_TOP" \
+    DMG_RIGHT="$WINDOW_RIGHT" \
+    DMG_BOTTOM="$WINDOW_BOTTOM" \
+    DMG_APP_X="$APP_X" \
+    DMG_APPS_X="$APPS_X" \
+    DMG_ICON_Y="$ICON_Y" \
+    osascript >"$FINDER_LOG" 2>&1 <<'APPLESCRIPT'
 on run
 	set diskName to system attribute "DMG_VOLUME_NAME"
 	set backgroundPath to system attribute "DMG_BACKGROUND_FILE"
@@ -207,69 +248,71 @@ on run
 	end tell
 end run
 APPLESCRIPT
-then
-  if [ -f "$MOUNT_POINT/.DS_Store" ]; then
-    echo "==> Window layout written"
+  then
+    if [ -f "$MOUNT_POINT/.DS_Store" ]; then
+      echo "==> Window layout written"
+    else
+      echo "warning: Finder did not write the window layout; the image keeps the default one" >&2
+    fi
   else
-    echo "warning: Finder did not write the window layout; the image keeps the default one" >&2
+    if grep -qE '\-1743|Not authori[sz]ed|not permitted' "$FINDER_LOG"; then
+      echo "warning: Finder automation is not permitted; the image keeps the default layout." >&2
+      echo "warning: this is optional. Allow Automation only if you want the custom window." >&2
+    else
+      echo "warning: the Finder layout failed; the image keeps the default layout:" >&2
+      sed 's/^/  /' "$FINDER_LOG" >&2
+    fi
+  fi
+
+  # Set after the layout on purpose: Finder removes the icon file when it opens a volume
+  # that already carries one.
+  if [ -f "$APP/Contents/Resources/AppIcon.icns" ] && command -v SetFile >/dev/null; then
+    cp "$APP/Contents/Resources/AppIcon.icns" "$MOUNT_POINT/.VolumeIcon.icns"
+    SetFile -a C "$MOUNT_POINT" 2>/dev/null || echo "warning: the volume icon could not be set" >&2
   fi
 else
-  if grep -qE '\-1743|Not authori[sz]ed|not permitted' "$FINDER_LOG"; then
-    echo "warning: Finder automation is not permitted, so the image keeps the default layout." >&2
-    echo "warning: allow this terminal to control Finder in System Settings > Privacy & Security > Automation." >&2
-  else
-    echo "warning: the Finder layout failed, so the image keeps the default layout:" >&2
-    sed 's/^/  /' "$FINDER_LOG" >&2
+  # No Finder, no AppleScript: a private mount point that never pollutes /Volumes.
+  mkdir -p "$TMP_DIR/mnt"
+  hdiutil attach "$RW_IMAGE" -mountpoint "$TMP_DIR/mnt" -nobrowse -noautoopen >/dev/null
+  if [ ! -d "$TMP_DIR/mnt/Applications" ] && [ ! -L "$TMP_DIR/mnt/Applications" ]; then
+    echo "error: the image was not mounted as expected at $TMP_DIR/mnt" >&2
+    exit 1
   fi
+  MOUNTED=1
 fi
 
-# The volume icon is set after the window layout on purpose: Finder removes the icon file
-# when it opens a volume that already carries one.
-if [ -f "$APP/Contents/Resources/AppIcon.icns" ] && command -v SetFile >/dev/null; then
-  cp "$APP/Contents/Resources/AppIcon.icns" "$MOUNT_POINT/.VolumeIcon.icns"
-  if SetFile -a C "$MOUNT_POINT" 2>/dev/null; then
-    echo "==> Volume icon set"
-  else
-    echo "warning: the volume icon could not be set" >&2
-  fi
-fi
-
-# Leave no registration behind: every build would otherwise add a stale copy of the app
-# that Spotlight and LaunchServices keep offering next to the installed one.
-if [ -x "$LSREGISTER" ]; then
-  "$LSREGISTER" -u "$MOUNT_POINT/$APP_NAME" >/dev/null 2>&1 || true
-fi
-
-echo "==> Detaching and compressing"
+echo "==> Detaching"
 sync
-if ! hdiutil detach "$MOUNT_POINT" -quiet; then
+if ! hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null && ! hdiutil detach "$TMP_DIR/mnt" -quiet 2>/dev/null; then
   echo "error: the volume is busy and could not be detached. Eject it in Finder and retry." >&2
   exit 1
 fi
 MOUNTED=0
 
-hdiutil convert "$RW_IMAGE" -format UDZO -ov -o "$OUT" >/dev/null
+echo "==> Compressing"
+hdiutil convert "$RW_IMAGE" -format UDZO -o "$FINAL_IMAGE" >/dev/null
 
 echo "==> Verifying the image"
-hdiutil verify "$OUT" >/dev/null
+hdiutil verify "$FINAL_IMAGE" >/dev/null
 
-DIGEST="$(shasum -a 256 "$OUT" | awk '{print $1}')"
-printf '%s  %s\n' "$DIGEST" "$(basename "$OUT")" > "$OUT.sha256"
+DIGEST="$(shasum -a 256 "$FINAL_IMAGE" | awk '{print $1}')"
+
+echo "==> Writing the artifacts"
+mkdir -p "$OUT_DIR"
+mv "$FINAL_IMAGE" "$OUT"
+printf '%s  %s\n' "$DIGEST" "$(basename "$OUT")" > "$SHA_FILE"
 {
   echo "artifact: $(basename "$OUT")"
   echo "sha256: $DIGEST"
   echo "application: $APP_NAME"
   echo "version: $VERSION"
-  echo "commit: $(git rev-parse HEAD)"
+  echo "source: $APP"
+  echo "commit: $(git rev-parse HEAD 2>/dev/null || echo unknown)"
   echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-} > "$OUT.build.txt"
-
-if [ -x "$LSREGISTER" ]; then
-  "$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
-fi
+} > "$BUILD_FILE"
 
 echo "==> Done"
-ls -lh "$OUT" "$OUT.sha256" "$OUT.build.txt"
+ls -lh "$OUT" "$SHA_FILE" "$BUILD_FILE"
 echo
 echo "Digest: $DIGEST"
-echo "Verify with: shasum -a 256 -c \"$(basename "$OUT").sha256\""
+echo "Verify with: shasum -a 256 -c \"$(basename "$SHA_FILE")\""

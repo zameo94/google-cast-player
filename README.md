@@ -237,10 +237,11 @@ subsystem.
   ```
 
   A failing review blocks the commit; the hook never skips the review silently.
-- `scripts/make-dmg.sh` builds the Release app and packages it into
-  `dist/GoogleCastPlayer-<version>.dmg`, which is what gets attached to a release. It is a
-  maintainer tool: the disk image is not committed, so the repository stays free of
-  binaries.
+- Packaging is two steps: `scripts/build-release.sh` compiles the Release bundle into
+  `build/`, and `scripts/make-dmg.sh <app>` packages an already built bundle into
+  `dist/GoogleCastPlayer-<version>.dmg` with its checksum. Only the second step writes an
+  image, and it never compiles; the disk image is not committed, so the repository stays
+  free of binaries.
 
 ## License
 
