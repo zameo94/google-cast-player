@@ -56,13 +56,6 @@ struct PlaybackControls: View {
                 }
             }
 
-            if let url = playback.castingURL {
-                Text(url.absoluteString)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-
             volumeRow
         }
     }

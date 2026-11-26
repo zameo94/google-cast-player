@@ -300,11 +300,6 @@ struct MainScreen: View {
             }
 
             playbackRow(devices.selectedDevice)
-
-            Text("A blue card is selected, a green card is connected. The file is served from this Mac over the local network, and the controls follow what the device reports.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(18)
         .background(
