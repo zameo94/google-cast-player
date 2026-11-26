@@ -4,8 +4,8 @@ Google Cast Player — Development
 Overall status: Phase 0 to Phase 7 on main and verified on a physical device; the Phase 8 release candidate is integrated into dev, with the release decision pending.
 Current development phase: Phase 8 — Stabilization and MVP Release (release candidate 1.0.0 integrated into dev; release approval pending).
 Current milestone: The release decision: signing, notarization and version tagging.
-Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev; feature/sleep-and-reconnect (Phase 8), created from main at 565f112 and merged into dev; feature/volume-control (Phase 8) and fix/receiver-stop-position, both created from dev on 2026-11-26 and merged into dev.
-Current working branch: dev; feature work happens on feature/<name> branches. feature/volume-control and fix/receiver-stop-position, both created from dev at the maintainer's request, are integrated into dev.
+Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev; feature/sleep-and-reconnect (Phase 8), created from main at 565f112 and merged into dev; feature/volume-control (Phase 8), fix/receiver-stop-position and feature/readme-and-packaging, all created from dev on 2026-11-26 and merged into dev.
+Current working branch: dev; feature work happens on feature/<name> branches. feature/volume-control, fix/receiver-stop-position and feature/readme-and-packaging, all created from dev at the maintainer's request, are integrated into dev.
 Last verified commit: main is 565f112; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
 Last verified test run: 188 unit tests passed with xcodebuild on 2026-11-26 (see section 6).
@@ -262,6 +262,8 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-26 | fix/receiver-stop-position | Resume after a device-side receiver stop keeps its position; found by the maintainer testing the Google Home session removal | 187 tests passed in Debug (the new test failed before the fix), Release build succeeded | 92fea8d |
 | 2026-11-26 | fix/receiver-stop-position | Resume rewinds three seconds before the stop position, so the scene context comes back | 188 tests passed in Debug, Release build succeeded; gga passed | e6e5229 |
 | 2026-11-26 | dev | Integrated the receiver-stop-position branch, approved by the maintainer after testing the resume | 188 tests re-run on dev after the merge | a2ceab1 |
+| 2026-11-26 | feature/readme-and-packaging | README rewritten for a non-technical audience, Apache 2.0 corrected in three documents, release packaging with a drag-to-Applications disk image, generated application icon, product named "Google Cast Player" | Disk image built, mounted and inspected on 2026-11-26 (window layout, volume icon, bundle contents); 188 tests pass; nothing tagged, pushed or published | see section 1 |
+| 2026-11-26 | dev | Integrated the readme-and-packaging branch, approved by the maintainer | 188 tests re-run on dev after the merge | 2bcb033 |
 | 2026-11-26 | feature/readme-and-packaging | README rewritten for a non-technical audience (agents, requirements, installation, tested devices, technology), Apache 2.0 corrected in three documents, release packaging script with the disk image attached to a GitHub release | The disk image was built, mounted and inspected; 188 tests still pass; nothing was tagged, pushed or published | see section 1 |
 
 8. Blockers and Risks
