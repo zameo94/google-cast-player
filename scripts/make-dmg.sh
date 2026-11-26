@@ -134,8 +134,28 @@ if [ "$PRETTY" -eq 1 ]; then
     echo "error: $LAYOUT is missing; it holds the window geometry." >&2
     exit 1
   fi
-  # shellcheck source=scripts/dmg-layout.conf
-  . "$LAYOUT"
+  # The layout file is data, not shell: only the known keys are read and every value must
+  # be an integer, so a modified file cannot execute anything.
+  while IFS='=' read -r key value; do
+    case "$key" in
+      ''|'#'*) continue ;;
+      WINDOW_LEFT|WINDOW_TOP|WINDOW_RIGHT|WINDOW_BOTTOM|APP_X|APPS_X|ICON_Y)
+        case "$value" in
+          ''|*[!0-9]*)
+            echo "error: $key in $LAYOUT must be an integer, found \"$value\"" >&2
+            exit 1
+            ;;
+        esac
+        printf -v "$key" '%s' "$value"
+        ;;
+    esac
+  done < "$LAYOUT"
+  for key in WINDOW_LEFT WINDOW_TOP WINDOW_RIGHT WINDOW_BOTTOM APP_X APPS_X ICON_Y; do
+    if [ -z "${!key:-}" ]; then
+      echo "error: $LAYOUT is missing $key" >&2
+      exit 1
+    fi
+  done
   MOUNT_POINT="/Volumes/$VOLUME_NAME"
   if mount | grep -qF " on $MOUNT_POINT ("; then
     echo "error: a volume named \"$VOLUME_NAME\" is already mounted. Eject it and retry." >&2
