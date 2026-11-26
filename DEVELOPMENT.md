@@ -85,14 +85,14 @@ Phase 5 — Cast communication:
 * `CastClient` runs the protocol the app needs: the connection namespace, heartbeat replies and its own pings, launching the Default Media Receiver, and sending a load command with the media URL, content type and stream type.
 * `CastDevice` now carries the Bonjour endpoint discovery reported, so a session can be opened without resolving the service again.
 * `CastConnectionModel` exposes real session states: idle, connecting, connected and failed with the reason the device or transport reported.
-* The window shows the state on the device card itself: a selected card is blue and offers Connect, a spinner appears on it while connecting, and a connected card turns green and offers Disconnect; Cancel and the failure message with retry and dismiss live in the session row, and connecting again to the already connected device does nothing.
+* The window shows the state on the device card itself: a selected card offers Connect, a spinner appears on it while connecting, and a connected card offers Disconnect; Cancel and the failure message with retry and dismiss live in the session row, and connecting again to the already connected device does nothing.
 * 21 additional unit tests (125 in total) covering message encoding and framing, the client handshake against a scripted transport, heartbeat behaviour, load payloads, timeouts, transport loss and the connection state machine.
 
 Phase 6 — end-to-end local video streaming:
 
 * `PlaybackModel` owns one cast: it starts the local server for the selected file, builds the media request from its MIME type, hands the URL to the connected device, and stops serving when the cast ends or fails.
 * `MediaServing` and `CastMediaLoading` keep the orchestration testable without a socket or a device; `LocalMediaServer` and `CastConnectionModel` provide the real implementations.
-* The window offers "Play on <device>" once a device is connected and a video is selected, shows a spinner while starting, prints the served URL once the device accepted it, and offers Stop.
+* The window offers "Play on <device>" once a device is connected and a video is selected, shows a spinner while starting, and offers Stop.
 * Stop and Disconnect are separate actions: Stop ends the media and keeps the session, so the receiver stays reachable for another cast, while Disconnect also stops the receiver application and closes the connection.
 * Ending a session sends a media STOP, a receiver STOP and a connection CLOSE before dropping the socket, then stops the server; closing the socket alone left the receiver playing and kept its cast screen alive. The stop commands carry a request id, which the receiver requires and silently ignores otherwise, and the receiver STOP falls back to stopping the current app when no session id was reported.
 * Leaving the connected state stops the server, so the file stops being reachable exactly when the cast ends.

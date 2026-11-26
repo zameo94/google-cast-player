@@ -91,14 +91,6 @@ final class PlaybackModel {
     /// File of the current cast, kept so an interrupted cast can be resumed.
     private(set) var file: MediaFile?
 
-    /// URL the receiver was asked to load, while a cast is active.
-    var castingURL: URL? {
-        guard case let .casting(url) = state else {
-            return nil
-        }
-        return url
-    }
-
     private let server: any MediaServing
     private let power: any CastPowerAsserting
     private let sleepWatcher: any SystemSleepWatching
