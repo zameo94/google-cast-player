@@ -27,7 +27,7 @@ Only verified work is recorded here.
 
 Phase 0 — repository and development foundation:
 
-* Repository created under the MIT license.
+* Repository created under the Apache 2.0 license.
 * Project instructions (AGENTS.md), product roadmap (ROADMAP.md) and this status document published.
 * dev branch created and integrated with main.
 * .gitignore excludes local AI tooling (.atl/, .gga) and macOS, Xcode, test and SwiftPM build artifacts (delivered by feature/repository-foundation).
@@ -148,7 +148,7 @@ Phase 8 — stabilization and release candidate:
 * Reason for the dedicated agent: the previous configuration invoked the general-purpose default agent, whose free-form answers sometimes placed the verdict outside the parsed window, blocking valid commits. A reviewer scoped to the verdict contract and without tools removes that source of variability.
 
 6. Build and Test Procedures
-The project is GoogleCastPlayer.xcodeproj with the shared scheme GoogleCastPlayer, the GoogleCastPlayer application target and the GoogleCastPlayerTests unit test target.
+The project is GoogleCastPlayer.xcodeproj with the shared scheme GoogleCastPlayer, the "Google Cast Player" application target (product name with the spaces a Finder application name needs, while the Swift module and the executable stay `GoogleCastPlayer`) and the GoogleCastPlayerTests unit test target.
 
 Build:
 
@@ -167,6 +167,20 @@ Verified on 2026-11-25 with Xcode 27.2:
 * The built application launches, keeps running and quits cleanly.
 * An offscreen render confirmed the layout of the video states. The new screen hosts a scroll view, which the offscreen renderer cannot draw, so the device section is a manual check.
 * Discovery was verified end to end against a Bonjour service registered on this machine: the browser reported the device once with its TXT record, and reported it removed when the service stopped. The test host itself cannot browse, because macOS gives it no local network access without a user decision.
+
+Packaging a release:
+
+* `scripts/make-dmg.sh` builds the Release configuration in a temporary directory, verifies the ad-hoc signature, stages the application next to an `/Applications` symlink and writes `dist/GoogleCastPlayer-<version>.dmg`. It prints the size and the SHA256 of the image.
+* The disk image is attached to a GitHub release and is not committed: `dist/` is ignored, so the repository history stays free of binaries. This is the standard layout for a project of this size, and it keeps every clone small.
+* The 1.0.0 image was verified on 2026-11-26: 1.0 MB compressed, it mounts with the application and the `/Applications` symlink inside, the binary is universal (x86_64 and arm64) and the signature is ad-hoc.
+* The window layout is Finder state, so it is stored in the image's `.DS_Store`; it is not a property of the disk image format. `scripts/make-dmg.sh` writes it with Finder through AppleScript on a writable volume mounted under `/Volumes`, then compresses. Reading the positions back from the finished image with Finder returns the expected `{150, 190}` and `{450, 190}` and a 600x400 window.
+* Writing that layout needs the terminal to be allowed to control Finder, once: System Settings → Privacy & Security → Automation. Without the permission the script still builds the image, keeps Finder's default layout and says so.
+* The background is `assets/dmg-background.png`, drawn by `scripts/make-dmg-background.swift` so it can be regenerated.
+* The application icon is drawn by `scripts/make-app-icon.swift` into `GoogleCastPlayer/Assets.xcassets/AppIcon.appiconset`, on Apple's icon grid (an 824-point rounded square on a 1024-point canvas with transparent margins, because macOS does not mask application icons). The target uses it through `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon`; the built app carries `AppIcon.icns` and both `CFBundleIconName` and `CFBundleIconFile`.
+* Searching Spotlight for the application can return the installed copy plus one copy per build product, because every copy carries the same bundle identifier and LaunchServices keeps one registration per copy. Two things keep that in check: `scripts/make-dmg.sh` unregisters the application it builds in its temporary directory, and a `.metadata_never_index` file in the local Xcode DerivedData folder keeps build products out of the Spotlight index. A full `lsregister -kill -r -domain local -domain system -domain user` purges registrations that point at deleted directories.
+* The disk image also carries `.VolumeIcon.icns` with the volume's custom-icon attribute. It is set after the Finder layout on purpose: Finder deletes the icon file when it opens a volume that already carries one, which silently produced an image without it.
+* Installing a version replaces the previous one; older `.dmg` files stay available on the releases page, so a different version can be installed at any time.
+* Tagging, pushing and creating the release are maintainer operations that need explicit approval. The agent may run the script and report the image, and nothing else.
 
 Manual checks (require a graphical session and cannot be automated on this machine):
 
@@ -248,6 +262,7 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-26 | fix/receiver-stop-position | Resume after a device-side receiver stop keeps its position; found by the maintainer testing the Google Home session removal | 187 tests passed in Debug (the new test failed before the fix), Release build succeeded | 92fea8d |
 | 2026-11-26 | fix/receiver-stop-position | Resume rewinds three seconds before the stop position, so the scene context comes back | 188 tests passed in Debug, Release build succeeded; gga passed | e6e5229 |
 | 2026-11-26 | dev | Integrated the receiver-stop-position branch, approved by the maintainer after testing the resume | 188 tests re-run on dev after the merge | a2ceab1 |
+| 2026-11-26 | feature/readme-and-packaging | README rewritten for a non-technical audience (agents, requirements, installation, tested devices, technology), Apache 2.0 corrected in three documents, release packaging script with the disk image attached to a GitHub release | The disk image was built, mounted and inspected; 188 tests still pass; nothing was tagged, pushed or published | see section 1 |
 
 8. Blockers and Risks
 No active blocker.
