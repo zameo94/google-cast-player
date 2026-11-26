@@ -82,6 +82,10 @@ let iconPanelInset: CGFloat = 16
 let iconPanelInnerCornerRadius: CGFloat = 18
 let iconPanelShadowBlur: CGFloat = 34
 let iconPanelShadowOffset: CGFloat = -10
+let iconPanelVerticalOffset: CGFloat = 10
+let iconHighlightInset: CGFloat = 60
+let iconHighlightRadius: CGFloat = 520
+let iconArcOriginInset: CGFloat = 10
 
 /// One broadcast arc rule: three rings that leave the panel corner, fading outwards.
 let iconArcRadii: [CGFloat] = [58, 108, 158]
@@ -126,10 +130,10 @@ func makeIconMaster() -> CGImage {
     if let highlight {
         context.drawRadialGradient(
             highlight,
-            startCenter: CGPoint(x: iconCanvas / 2, y: iconCanvas - 60),
+            startCenter: CGPoint(x: iconCanvas / 2, y: iconCanvas - iconHighlightInset),
             startRadius: 0,
-            endCenter: CGPoint(x: iconCanvas / 2, y: iconCanvas - 60),
-            endRadius: 520,
+            endCenter: CGPoint(x: iconCanvas / 2, y: iconCanvas - iconHighlightInset),
+            endRadius: iconHighlightRadius,
             options: []
         )
     }
@@ -138,7 +142,7 @@ func makeIconMaster() -> CGImage {
     // Screen: a widescreen panel, slightly above the optical centre.
     let panel = CGRect(
         x: (iconCanvas - iconPanelSize.width) / 2,
-        y: (iconCanvas - iconPanelSize.height) / 2 - 10,
+        y: (iconCanvas - iconPanelSize.height) / 2 - iconPanelVerticalOffset,
         width: iconPanelSize.width,
         height: iconPanelSize.height
     )
@@ -207,7 +211,7 @@ func makeIconMaster() -> CGImage {
     context.saveGState()
     context.addPath(shape)
     context.clip()
-    let origin = CGPoint(x: panel.maxX - 10, y: panel.maxY - 10)
+    let origin = CGPoint(x: panel.maxX - iconArcOriginInset, y: panel.maxY - iconArcOriginInset)
     context.setLineCap(.round)
     for (index, radius) in iconArcRadii.enumerated() {
         context.addArc(
@@ -232,23 +236,19 @@ func makeIconMaster() -> CGImage {
 
 func writeIconSet(to directory: URL) {
     struct Entry {
-        let filename: String
-        let size: String
-        let scale: String
-        let pixels: Int
+        let points: Int
+        let scaleFactor: Int
+        var pixels: Int { points * scaleFactor }
+        var filename: String {
+            scaleFactor == 1 ? "icon_\(points)x\(points).png" : "icon_\(points)x\(points)@2x.png"
+        }
+        var size: String { "\(points)x\(points)" }
+        var scale: String { "\(scaleFactor)x" }
     }
-    let entries: [Entry] = [
-        Entry(filename: "icon_16x16.png", size: "16x16", scale: "1x", pixels: 16),
-        Entry(filename: "icon_16x16@2x.png", size: "16x16", scale: "2x", pixels: 32),
-        Entry(filename: "icon_32x32.png", size: "32x32", scale: "1x", pixels: 32),
-        Entry(filename: "icon_32x32@2x.png", size: "32x32", scale: "2x", pixels: 64),
-        Entry(filename: "icon_128x128.png", size: "128x128", scale: "1x", pixels: 128),
-        Entry(filename: "icon_128x128@2x.png", size: "128x128", scale: "2x", pixels: 256),
-        Entry(filename: "icon_256x256.png", size: "256x256", scale: "1x", pixels: 256),
-        Entry(filename: "icon_256x256@2x.png", size: "256x256", scale: "2x", pixels: 512),
-        Entry(filename: "icon_512x512.png", size: "512x512", scale: "1x", pixels: 512),
-        Entry(filename: "icon_512x512@2x.png", size: "512x512", scale: "2x", pixels: 1024),
-    ]
+    // The catalog asks for these point sizes at both scales; the pixel count is derived,
+    // so a typo cannot produce a mismatched asset.
+    let entries = [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2), (256, 1), (256, 2), (512, 1), (512, 2)]
+        .map { Entry(points: $0.0, scaleFactor: $0.1) }
 
     let master = makeIconMaster()
     do {
@@ -300,19 +300,46 @@ func writeIconSet(to directory: URL) {
 
 // MARK: - Disk image background
 
-/// The disk image is 1200x800 pixels and is shown in a 600x400 window, so these
-/// coordinates are exactly twice the window points used in scripts/make-dmg.sh: the
-/// window is placed at {300, 160, 900, 560} and its icons sit at {150, 190} for the
-/// application and {450, 190} for Applications. The chevron is drawn between the two icon
-/// columns; moving an icon in the shell script means moving it here too.
+/// The disk image is 1200x800 pixels and is shown in a 600x400 window, so every coordinate
+/// here is twice the Finder points in scripts/dmg-layout.conf, which scripts/make-dmg.sh
+/// also reads. The chevron is derived from the icon columns, so moving an icon in the
+/// layout file moves the chevron with it.
 let dmgBackgroundWidth = 1200
 let dmgBackgroundHeight = 800
-let dmgChevronStartX: CGFloat = 552
-let dmgChevronTipX: CGFloat = 604
+let dmgChevronOffsetBeforeMidpoint: CGFloat = 24
+let dmgChevronOffsetAfterMidpoint: CGFloat = 2
 let dmgChevronHalfHeight: CGFloat = 22
 let dmgChevronWidth: CGFloat = 7
+let dmgPointScale: CGFloat = 2
+let dmgLayoutPath = "scripts/dmg-layout.conf"
+
+struct DMGLayout {
+    let appX: CGFloat
+    let appsX: CGFloat
+}
+
+/// Reads the window geometry the packaging script uses. Both files must agree, and this is
+/// the only place the numbers live.
+func loadDMGLayout() -> DMGLayout {
+    guard let text = try? String(contentsOfFile: dmgLayoutPath, encoding: .utf8) else {
+        fail("cannot read \(dmgLayoutPath); run this script from the repository root")
+    }
+    var values: [String: CGFloat] = [:]
+    for line in text.split(separator: "\n") {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
+        let parts = trimmed.split(separator: "=", maxSplits: 1)
+        guard parts.count == 2, let value = Double(parts[1]) else { continue }
+        values[String(parts[0])] = CGFloat(value)
+    }
+    guard let appX = values["APP_X"], let appsX = values["APPS_X"] else {
+        fail("\(dmgLayoutPath) is missing APP_X or APPS_X")
+    }
+    return DMGLayout(appX: appX, appsX: appsX)
+}
 
 func makeBackground() -> CGImage {
+    let layout = loadDMGLayout()
     let context = makeContext(width: dmgBackgroundWidth, height: dmgBackgroundHeight)
 
     let top = color(0.97, 0.97, 0.98)
@@ -334,10 +361,13 @@ func makeBackground() -> CGImage {
     context.setLineWidth(dmgChevronWidth)
     context.setLineCap(.round)
     context.setLineJoin(.round)
+    let midpoint = (layout.appX + layout.appsX) / 2 * dmgPointScale
+    let startX = midpoint - dmgChevronOffsetBeforeMidpoint * dmgPointScale
+    let tipX = midpoint + dmgChevronOffsetAfterMidpoint * dmgPointScale
     let middle = CGFloat(dmgBackgroundHeight) / 2
-    context.move(to: CGPoint(x: dmgChevronStartX, y: middle + dmgChevronHalfHeight))
-    context.addLine(to: CGPoint(x: dmgChevronTipX, y: middle))
-    context.addLine(to: CGPoint(x: dmgChevronStartX, y: middle - dmgChevronHalfHeight))
+    context.move(to: CGPoint(x: startX, y: middle + dmgChevronHalfHeight))
+    context.addLine(to: CGPoint(x: tipX, y: middle))
+    context.addLine(to: CGPoint(x: startX, y: middle - dmgChevronHalfHeight))
     context.strokePath()
 
     guard let image = context.makeImage() else {

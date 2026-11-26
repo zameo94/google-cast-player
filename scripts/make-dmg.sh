@@ -32,8 +32,16 @@ PROJECT="GoogleCastPlayer.xcodeproj"
 SCHEME="GoogleCastPlayer"
 VOLUME_NAME="Google Cast Player"
 BACKGROUND="$ROOT/assets/dmg-background.png"
+LAYOUT="$ROOT/scripts/dmg-layout.conf"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 MOUNT_POINT="/Volumes/$VOLUME_NAME"
+
+if [ ! -f "$LAYOUT" ]; then
+  echo "error: $LAYOUT is missing; it holds the window geometry shared with the artwork." >&2
+  exit 1
+fi
+# shellcheck source=scripts/dmg-layout.conf
+. "$LAYOUT"
 
 BUILD_DIR=""
 MOUNTED=0
@@ -61,28 +69,25 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 
-if [ -d "$MOUNT_POINT" ]; then
+if mount | grep -qF " on $MOUNT_POINT ("; then
   echo "error: a volume named \"$VOLUME_NAME\" is already mounted. Eject it and retry." >&2
   exit 1
+fi
+if [ -d "$MOUNT_POINT" ]; then
+  # An interrupted run can leave the mount point directory behind; a plain directory is
+  # not a mounted volume, so it cannot be ejected and must not block the next run.
+  if rmdir "$MOUNT_POINT" 2>/dev/null; then
+    echo "==> Removed a stale mount point left by an earlier run"
+  else
+    echo "error: $MOUNT_POINT exists, is not empty, and nothing is mounted on it. Inspect it by hand." >&2
+    exit 1
+  fi
 fi
 
 # Everything temporary lives outside the worktree, so no build output can be committed.
 BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/castplayer-dmg.XXXXXX")"
 RW_IMAGE="$BUILD_DIR/read-write.dmg"
 BUILD_LOG="$BUILD_DIR/xcodebuild.log"
-
-PRODUCT_NAME="$(xcodebuild \
-  -project "$PROJECT" \
-  -scheme "$SCHEME" \
-  -configuration Release \
-  -showBuildSettings 2>/dev/null \
-  | sed -n 's/^ *PRODUCT_NAME = //p' | head -1)"
-if [ -z "$PRODUCT_NAME" ]; then
-  echo "error: the application product name could not be read from the project." >&2
-  exit 1
-fi
-# One spelling for the project, the bundle and the artifact name.
-ARTIFACT_BASE="${PRODUCT_NAME// /}"
 
 echo "==> Building $SCHEME (Release)"
 if ! xcodebuild \
@@ -93,17 +98,28 @@ if ! xcodebuild \
   -derivedDataPath "$BUILD_DIR" \
   build >"$BUILD_LOG" 2>&1
 then
-  echo "error: the Release build failed. Last lines of $BUILD_LOG:" >&2
+  FAILURE_LOG="$ROOT/dist/xcodebuild-failure.log"
+  mkdir -p "$ROOT/dist"
+  cp "$BUILD_LOG" "$FAILURE_LOG"
+  echo "error: the Release build failed." >&2
+  echo "error: the full log is kept at $FAILURE_LOG; its last lines:" >&2
   tail -40 "$BUILD_LOG" >&2
   exit 1
 fi
 
-APP="$BUILD_DIR/Build/Products/Release/$PRODUCT_NAME.app"
-if [ ! -d "$APP" ]; then
-  echo "error: the build produced no application at $APP" >&2
+# The built bundle is the source of truth for the application name, so nothing has to
+# restate it: the product, the bundle and the artifact all come from here.
+PRODUCTS="$BUILD_DIR/Build/Products/Release"
+APP_COUNT="$(find "$PRODUCTS" -maxdepth 1 -name '*.app' | wc -l | tr -d ' ')"
+if [ "$APP_COUNT" -ne 1 ]; then
+  echo "error: expected exactly one application in $PRODUCTS, found $APP_COUNT" >&2
   exit 1
 fi
+APP="$(find "$PRODUCTS" -maxdepth 1 -name '*.app' | head -1)"
 APP_NAME="$(basename "$APP")"
+# The bundle keeps the spaced name Finder shows; the download drops the spaces.
+ARTIFACT_BASE="${APP_NAME%.app}"
+ARTIFACT_BASE="${ARTIFACT_BASE// /}"
 
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 STAGE="$BUILD_DIR/stage"
@@ -142,30 +158,48 @@ if [ -f "$BACKGROUND" ]; then
   BACKGROUND_FILE="$MOUNT_POINT/.background/dmg-background.png"
 fi
 
-# The geometry below must agree with scripts/make-artwork.swift: a 600x400 window shows
-# the 1200x800 background at half size, and the chevron is drawn between the two icons.
+# The window geometry comes from scripts/dmg-layout.conf, which the background generator
+# reads too: the image is drawn at twice these points, and the chevron is derived from the
+# icon positions, so the two cannot drift apart.
 echo "==> Arranging the window"
 FINDER_LOG="$BUILD_DIR/osascript.log"
-if DMG_VOLUME_NAME="$VOLUME_NAME" DMG_BACKGROUND_FILE="$BACKGROUND_FILE" DMG_APP_NAME="$APP_NAME" osascript >"$FINDER_LOG" 2>&1 <<'APPLESCRIPT'
+if DMG_VOLUME_NAME="$VOLUME_NAME" \
+  DMG_BACKGROUND_FILE="$BACKGROUND_FILE" \
+  DMG_APP_NAME="$APP_NAME" \
+  DMG_LEFT="$WINDOW_LEFT" \
+  DMG_TOP="$WINDOW_TOP" \
+  DMG_RIGHT="$WINDOW_RIGHT" \
+  DMG_BOTTOM="$WINDOW_BOTTOM" \
+  DMG_APP_X="$APP_X" \
+  DMG_APPS_X="$APPS_X" \
+  DMG_ICON_Y="$ICON_Y" \
+  osascript >"$FINDER_LOG" 2>&1 <<'APPLESCRIPT'
 on run
 	set diskName to system attribute "DMG_VOLUME_NAME"
 	set backgroundPath to system attribute "DMG_BACKGROUND_FILE"
 	set appName to system attribute "DMG_APP_NAME"
+	set leftEdge to (system attribute "DMG_LEFT") as integer
+	set topEdge to (system attribute "DMG_TOP") as integer
+	set rightEdge to (system attribute "DMG_RIGHT") as integer
+	set bottomEdge to (system attribute "DMG_BOTTOM") as integer
+	set appX to (system attribute "DMG_APP_X") as integer
+	set appsX to (system attribute "DMG_APPS_X") as integer
+	set iconY to (system attribute "DMG_ICON_Y") as integer
 	tell application "Finder"
 		tell disk diskName
 			open
 			set current view of container window to icon view
 			set toolbar visible of container window to false
 			set statusbar visible of container window to false
-			set the bounds of container window to {300, 160, 900, 560}
+			set the bounds of container window to {leftEdge, topEdge, rightEdge, bottomEdge}
 			set theViewOptions to the icon view options of container window
 			set arrangement of theViewOptions to not arranged
 			set icon size of theViewOptions to 128
 			if backgroundPath is not "" then
 				set background picture of theViewOptions to (POSIX file backgroundPath)
 			end if
-			set position of item appName of container window to {150, 190}
-			set position of item "Applications" of container window to {450, 190}
+			set position of item appName of container window to {appX, iconY}
+			set position of item "Applications" of container window to {appsX, iconY}
 			update without registering applications
 		end tell
 		delay 2
