@@ -26,3 +26,6 @@ coverage/
 # Swift Package Manager
 .build/
 .swiftpm/
+
+# Release packaging output
+dist/
