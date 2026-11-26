@@ -60,13 +60,24 @@ only real hardware could tell, on a real television:
 ### From a release
 
 1. Open the [releases page](https://github.com/zameo94/google-cast-player/releases) and
-   download the `.dmg` of the version you want.
-2. Open it and drag **Google Cast Player** onto the **Applications** folder.
-3. Launch it from Applications.
+   download the `.dmg` of the version you want, together with its `.sha256` file.
+2. Check the download, in the folder that holds both files:
+
+   ```sh
+   shasum -a 256 -c GoogleCastPlayer-1.0.0.dmg.sha256
+   ```
+
+   It must print `OK`. If it does not, the file is not the one that was published: delete
+   it, download it again, and do not install it.
+3. Open the image and drag **Google Cast Player** onto the **Applications** folder.
+4. Launch it from Applications.
 
 The application is signed ad-hoc, not notarized by Apple, so on the first launch macOS may
 say it cannot verify it. To allow it, open **System Settings → Privacy & Security**,
 scroll to the bottom and choose **Open Anyway**. This is a one-time step per version.
+
+Do that only after the checksum in step 2 printed `OK`: the override lowers one of the
+platform's protections, and the checksum is what shows the file is the published one.
 
 One version is installed at a time. To go back to an older one, download its `.dmg` from
 the releases page and install it the same way.

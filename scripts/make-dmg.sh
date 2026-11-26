@@ -4,14 +4,19 @@
 # drag-to-Applications window.
 #
 # Run by the maintainer before publishing a release, never by someone who installs the
-# app. The image is attached to a GitHub release; it is not committed to the repository,
-# so the git history stays free of binaries.
+# app. The image is attached to a GitHub release, with its checksum and a small build
+# record next to it; nothing is committed, so the git history stays free of binaries.
 #
 # Usage:
 #   scripts/make-dmg.sh
 #
-# Output:
-#   dist/GoogleCastPlayer-<version>.dmg  plus its SHA256, printed on the last line.
+# Output, under dist/:
+#   <product>-<version>.dmg            the disk image to attach to the release
+#   <product>-<version>.dmg.sha256     the digest, usable with `shasum -a 256 -c`
+#   <product>-<version>.dmg.build.txt  commit, version and build time
+#
+# The working tree must be clean: an artifact must correspond to committed source, not to
+# whatever happened to be in the tree.
 #
 # The window layout is Finder state stored in the image's .DS_Store, which Finder only
 # writes for a volume mounted under /Volumes. Writing it needs the terminal to be allowed
@@ -24,32 +29,76 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 PROJECT="GoogleCastPlayer.xcodeproj"
-LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 SCHEME="GoogleCastPlayer"
 VOLUME_NAME="Google Cast Player"
-MOUNT_POINT="/Volumes/$VOLUME_NAME"
 BACKGROUND="$ROOT/assets/dmg-background.png"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+MOUNT_POINT="/Volumes/$VOLUME_NAME"
+
+BUILD_DIR=""
+MOUNTED=0
+
+cleanup() {
+  status=$?
+  if [ "$MOUNTED" -eq 1 ]; then
+    if hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null; then
+      MOUNTED=0
+    else
+      echo "warning: the volume could not be detached; it is still mounted at $MOUNT_POINT" >&2
+      echo "warning: keeping $BUILD_DIR, because deleting it would remove the image behind the mounted volume" >&2
+      exit "$status"
+    fi
+  fi
+  if [ -n "$BUILD_DIR" ]; then
+    rm -rf "$BUILD_DIR"
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo "error: the working tree is not clean. Commit or stash the changes first, so the image matches a committed revision." >&2
+  exit 1
+fi
 
 if [ -d "$MOUNT_POINT" ]; then
   echo "error: a volume named \"$VOLUME_NAME\" is already mounted. Eject it and retry." >&2
   exit 1
 fi
 
-# Build outside the worktree, so no build output or scratch directory can be committed.
+# Everything temporary lives outside the worktree, so no build output can be committed.
 BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/castplayer-dmg.XXXXXX")"
 RW_IMAGE="$BUILD_DIR/read-write.dmg"
-trap 'hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true; rm -rf "$BUILD_DIR"' EXIT
+BUILD_LOG="$BUILD_DIR/xcodebuild.log"
+
+PRODUCT_NAME="$(xcodebuild \
+  -project "$PROJECT" \
+  -scheme "$SCHEME" \
+  -configuration Release \
+  -showBuildSettings 2>/dev/null \
+  | sed -n 's/^ *PRODUCT_NAME = //p' | head -1)"
+if [ -z "$PRODUCT_NAME" ]; then
+  echo "error: the application product name could not be read from the project." >&2
+  exit 1
+fi
+# One spelling for the project, the bundle and the artifact name.
+ARTIFACT_BASE="${PRODUCT_NAME// /}"
 
 echo "==> Building $SCHEME (Release)"
-xcodebuild \
+if ! xcodebuild \
   -project "$PROJECT" \
   -scheme "$SCHEME" \
   -configuration Release \
   -destination 'platform=macOS' \
   -derivedDataPath "$BUILD_DIR" \
-  build >/dev/null
+  build >"$BUILD_LOG" 2>&1
+then
+  echo "error: the Release build failed. Last lines of $BUILD_LOG:" >&2
+  tail -40 "$BUILD_LOG" >&2
+  exit 1
+fi
 
-APP="$BUILD_DIR/Build/Products/Release/Google Cast Player.app"
+APP="$BUILD_DIR/Build/Products/Release/$PRODUCT_NAME.app"
 if [ ! -d "$APP" ]; then
   echo "error: the build produced no application at $APP" >&2
   exit 1
@@ -59,7 +108,7 @@ APP_NAME="$(basename "$APP")"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 STAGE="$BUILD_DIR/stage"
 OUT_DIR="$ROOT/dist"
-OUT="$OUT_DIR/GoogleCastPlayer-$VERSION.dmg"
+OUT="$OUT_DIR/$ARTIFACT_BASE-$VERSION.dmg"
 
 echo "==> Verifying the signature of the built application"
 codesign --verify --deep --strict "$APP"
@@ -77,7 +126,14 @@ hdiutil create \
   -format UDRW \
   "$RW_IMAGE" >/dev/null
 
-hdiutil attach "$RW_IMAGE" -nobrowse -noautoopen -quiet
+# The mount point is explicit, so no parsing of the attach output is needed and no
+# later step depends on an assumed path. The preflight proved the point was free.
+hdiutil attach "$RW_IMAGE" -mountpoint "$MOUNT_POINT" -nobrowse -noautoopen >/dev/null
+if [ ! -d "$MOUNT_POINT" ]; then
+  echo "error: the image was not mounted at $MOUNT_POINT" >&2
+  exit 1
+fi
+MOUNTED=1
 
 BACKGROUND_FILE=""
 if [ -f "$BACKGROUND" ]; then
@@ -86,8 +142,11 @@ if [ -f "$BACKGROUND" ]; then
   BACKGROUND_FILE="$MOUNT_POINT/.background/dmg-background.png"
 fi
 
+# The geometry below must agree with scripts/make-artwork.swift: a 600x400 window shows
+# the 1200x800 background at half size, and the chevron is drawn between the two icons.
 echo "==> Arranging the window"
-if DMG_VOLUME_NAME="$VOLUME_NAME" DMG_BACKGROUND_FILE="$BACKGROUND_FILE" DMG_APP_NAME="$APP_NAME" osascript <<'APPLESCRIPT' >/dev/null 2>&1
+FINDER_LOG="$BUILD_DIR/osascript.log"
+if DMG_VOLUME_NAME="$VOLUME_NAME" DMG_BACKGROUND_FILE="$BACKGROUND_FILE" DMG_APP_NAME="$APP_NAME" osascript >"$FINDER_LOG" 2>&1 <<'APPLESCRIPT'
 on run
 	set diskName to system attribute "DMG_VOLUME_NAME"
 	set backgroundPath to system attribute "DMG_BACKGROUND_FILE"
@@ -121,7 +180,13 @@ then
     echo "warning: Finder did not write the window layout; the image keeps the default one" >&2
   fi
 else
-  echo "warning: Finder layout skipped (automation not permitted); the image keeps the default layout" >&2
+  if grep -qE '\-1743|Not authori[sz]ed|not permitted' "$FINDER_LOG"; then
+    echo "warning: Finder automation is not permitted, so the image keeps the default layout." >&2
+    echo "warning: allow this terminal to control Finder in System Settings > Privacy & Security > Automation." >&2
+  else
+    echo "warning: the Finder layout failed, so the image keeps the default layout:" >&2
+    sed 's/^/  /' "$FINDER_LOG" >&2
+  fi
 fi
 
 # The volume icon is set after the window layout on purpose: Finder removes the icon file
@@ -143,13 +208,34 @@ fi
 
 echo "==> Detaching and compressing"
 sync
-hdiutil detach "$MOUNT_POINT" -quiet
-hdiutil convert "$RW_IMAGE" -format UDZO -o "$OUT" >/dev/null
+if ! hdiutil detach "$MOUNT_POINT" -quiet; then
+  echo "error: the volume is busy and could not be detached. Eject it in Finder and retry." >&2
+  exit 1
+fi
+MOUNTED=0
+
+hdiutil convert "$RW_IMAGE" -format UDZO -ov -o "$OUT" >/dev/null
+
+echo "==> Verifying the image"
+hdiutil verify "$OUT" >/dev/null
+
+DIGEST="$(shasum -a 256 "$OUT" | awk '{print $1}')"
+printf '%s  %s\n' "$DIGEST" "$(basename "$OUT")" > "$OUT.sha256"
+{
+  echo "artifact: $(basename "$OUT")"
+  echo "sha256: $DIGEST"
+  echo "application: $APP_NAME"
+  echo "version: $VERSION"
+  echo "commit: $(git rev-parse HEAD)"
+  echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} > "$OUT.build.txt"
 
 if [ -x "$LSREGISTER" ]; then
   "$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
 fi
 
 echo "==> Done"
-ls -lh "$OUT"
-shasum -a 256 "$OUT"
+ls -lh "$OUT" "$OUT.sha256" "$OUT.build.txt"
+echo
+echo "Digest: $DIGEST"
+echo "Verify with: shasum -a 256 -c \"$(basename "$OUT").sha256\""
