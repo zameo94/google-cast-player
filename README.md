@@ -74,7 +74,7 @@ the releases page and install it the same way.
 ### From source
 
 ```sh
-git clone <this repository>
+git clone https://github.com/zameo94/google-cast-player.git
 open GoogleCastPlayer.xcodeproj   # choose the GoogleCastPlayer scheme and press Run
 ```
 
