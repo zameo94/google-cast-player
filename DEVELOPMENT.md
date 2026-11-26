@@ -9,7 +9,7 @@ Current working branch: dev; feature work happens on feature/<name> branches. fe
 Last verified commit: main is 565f112; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
 Last verified test run: 188 unit tests passed with xcodebuild on 2026-11-26 (see section 6).
-Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
+Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7; the native review (Gentle AI) approved the packaging range on 2026-11-26 with advisory findings, all fixed in 9dcfe46.
 Last remote synchronization: main matches origin/main at 565f112. dev is ahead of origin/dev with the release candidate; the sleep-and-reconnect branch is local only; nothing has been pushed.
 
 2. Verified Environment
