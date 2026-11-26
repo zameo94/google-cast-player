@@ -121,6 +121,17 @@ else
   echo "warning: Finder layout skipped (automation not permitted); the image keeps the default layout" >&2
 fi
 
+# The volume icon is set after the window layout on purpose: Finder removes the icon file
+# when it opens a volume that already carries one.
+if [ -f "$APP/Contents/Resources/AppIcon.icns" ] && command -v SetFile >/dev/null; then
+  cp "$APP/Contents/Resources/AppIcon.icns" "$MOUNT_POINT/.VolumeIcon.icns"
+  if SetFile -a C "$MOUNT_POINT" 2>/dev/null; then
+    echo "==> Volume icon set"
+  else
+    echo "warning: the volume icon could not be set" >&2
+  fi
+fi
+
 echo "==> Detaching and compressing"
 sync
 hdiutil detach "$MOUNT_POINT" -quiet
