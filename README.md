@@ -238,7 +238,8 @@ subsystem.
 
   A failing review blocks the commit; the hook never skips the review silently.
 - Packaging is two steps: `scripts/build-release.sh` compiles the Release bundle into
-  `build/`, and `scripts/make-dmg.sh <app>` packages an already built bundle into
+  `build/`, and `scripts/make-dmg.sh [app]` packages an already built bundle (no argument means the one in
+  `build/`) into
   `dist/GoogleCastPlayer-<version>.dmg` with its checksum. Only the second step writes an
   image, and it never compiles; the disk image is not committed, so the repository stays
   free of binaries.
