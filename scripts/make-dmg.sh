@@ -24,6 +24,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 PROJECT="GoogleCastPlayer.xcodeproj"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 SCHEME="GoogleCastPlayer"
 VOLUME_NAME="Google Cast Player"
 MOUNT_POINT="/Volumes/$VOLUME_NAME"
@@ -132,10 +133,20 @@ if [ -f "$APP/Contents/Resources/AppIcon.icns" ] && command -v SetFile >/dev/nul
   fi
 fi
 
+# Leave no registration behind: every build would otherwise add a stale copy of the app
+# that Spotlight and LaunchServices keep offering next to the installed one.
+if [ -x "$LSREGISTER" ]; then
+  "$LSREGISTER" -u "$MOUNT_POINT/GoogleCastPlayer.app" >/dev/null 2>&1 || true
+fi
+
 echo "==> Detaching and compressing"
 sync
 hdiutil detach "$MOUNT_POINT" -quiet
 hdiutil convert "$RW_IMAGE" -format UDZO -o "$OUT" >/dev/null
+
+if [ -x "$LSREGISTER" ]; then
+  "$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
+fi
 
 echo "==> Done"
 ls -lh "$OUT"
