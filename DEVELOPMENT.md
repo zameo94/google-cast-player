@@ -172,7 +172,10 @@ Packaging a release:
 
 * `scripts/make-dmg.sh` builds the Release configuration in a temporary directory, verifies the ad-hoc signature, stages the application next to an `/Applications` symlink and writes `dist/GoogleCastPlayer-<version>.dmg`. It prints the size and the SHA256 of the image.
 * The disk image is attached to a GitHub release and is not committed: `dist/` is ignored, so the repository history stays free of binaries. This is the standard layout for a project of this size, and it keeps every clone small.
-* The 1.0.0 image was verified on 2026-11-26: 1.2 MB compressed, it mounts with the application and the `/Applications` symlink inside, the binary is universal (x86_64 and arm64) and the signature is ad-hoc.
+* The 1.0.0 image was verified on 2026-11-26: 1.0 MB compressed, it mounts with the application and the `/Applications` symlink inside, the binary is universal (x86_64 and arm64) and the signature is ad-hoc.
+* The window layout is Finder state, so it is stored in the image's `.DS_Store`; it is not a property of the disk image format. `scripts/make-dmg.sh` writes it with Finder through AppleScript on a writable volume mounted under `/Volumes`, then compresses. Reading the positions back from the finished image with Finder returns the expected `{150, 190}` and `{450, 190}` and a 600x400 window.
+* Writing that layout needs the terminal to be allowed to control Finder, once: System Settings → Privacy & Security → Automation. Without the permission the script still builds the image, keeps Finder's default layout and says so.
+* The background is `assets/dmg-background.png`, drawn by `scripts/make-dmg-background.swift` so it can be regenerated. The application still uses the default icon; a real icon is pending.
 * Installing a version replaces the previous one; older `.dmg` files stay available on the releases page, so a different version can be installed at any time.
 * Tagging, pushing and creating the release are maintainer operations that need explicit approval. The agent may run the script and report the image, and nothing else.
 
