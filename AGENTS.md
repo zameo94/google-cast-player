@@ -612,7 +612,7 @@ The final report must include:
 11. Recommended next step.
 Never claim that a task or mission is complete if its required acceptance criteria have not been verified.
 17. Git, Secrets, and Open-Source Repository
-* Respect the project's MIT license.
+* Respect the project's Apache 2.0 license.
 * Do not copy code, dependencies, or assets without checking their licenses.
 * Never include credentials, tokens, private certificates, personal data, or sensitive local files.
 * Keep .gitignore accurate.

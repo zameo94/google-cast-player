@@ -4,12 +4,12 @@ Google Cast Player — Development
 Overall status: Phase 0 to Phase 7 on main and verified on a physical device; the Phase 8 release candidate is integrated into dev, with the release decision pending.
 Current development phase: Phase 8 — Stabilization and MVP Release (release candidate 1.0.0 integrated into dev; release approval pending).
 Current milestone: The release decision: signing, notarization and version tagging.
-Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev; feature/sleep-and-reconnect (Phase 8), created from main at 565f112 and merged into dev; feature/volume-control (Phase 8) and fix/receiver-stop-position, both created from dev on 2026-11-26 and merged into dev.
-Current working branch: dev; feature work happens on feature/<name> branches. feature/volume-control and fix/receiver-stop-position, both created from dev at the maintainer's request, are integrated into dev.
+Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev; feature/sleep-and-reconnect (Phase 8), created from main at 565f112 and merged into dev; feature/volume-control (Phase 8), fix/receiver-stop-position and feature/readme-and-packaging, all created from dev on 2026-11-26 and merged into dev.
+Current working branch: dev; feature work happens on feature/<name> branches. feature/volume-control, fix/receiver-stop-position and feature/readme-and-packaging, all created from dev at the maintainer's request, are integrated into dev.
 Last verified commit: main is 565f112; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
 Last verified test run: 188 unit tests passed with xcodebuild on 2026-11-26 (see section 6).
-Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7.
+Last quality gate run: gga v2.10.1 on the staged files of each commit listed in section 7; the native review (Gentle AI) approved the packaging range on 2026-11-26 with advisory findings, all fixed in 9dcfe46.
 Last remote synchronization: main matches origin/main at 565f112. dev is ahead of origin/dev with the release candidate; the sleep-and-reconnect branch is local only; nothing has been pushed.
 
 2. Verified Environment
@@ -27,7 +27,7 @@ Only verified work is recorded here.
 
 Phase 0 — repository and development foundation:
 
-* Repository created under the MIT license.
+* Repository created under the Apache 2.0 license.
 * Project instructions (AGENTS.md), product roadmap (ROADMAP.md) and this status document published.
 * dev branch created and integrated with main.
 * .gitignore excludes local AI tooling (.atl/, .gga) and macOS, Xcode, test and SwiftPM build artifacts (delivered by feature/repository-foundation).
@@ -148,7 +148,7 @@ Phase 8 — stabilization and release candidate:
 * Reason for the dedicated agent: the previous configuration invoked the general-purpose default agent, whose free-form answers sometimes placed the verdict outside the parsed window, blocking valid commits. A reviewer scoped to the verdict contract and without tools removes that source of variability.
 
 6. Build and Test Procedures
-The project is GoogleCastPlayer.xcodeproj with the shared scheme GoogleCastPlayer, the GoogleCastPlayer application target and the GoogleCastPlayerTests unit test target.
+The project is GoogleCastPlayer.xcodeproj with the shared scheme GoogleCastPlayer, the "Google Cast Player" application target (product name with the spaces a Finder application name needs, while the Swift module and the executable stay `GoogleCastPlayer`) and the GoogleCastPlayerTests unit test target.
 
 Build:
 
@@ -167,6 +167,19 @@ Verified on 2026-11-25 with Xcode 27.2:
 * The built application launches, keeps running and quits cleanly.
 * An offscreen render confirmed the layout of the video states. The new screen hosts a scroll view, which the offscreen renderer cannot draw, so the device section is a manual check.
 * Discovery was verified end to end against a Bonjour service registered on this machine: the browser reported the device once with its TXT record, and reported it removed when the service stopped. The test host itself cannot browse, because macOS gives it no local network access without a user decision.
+
+Packaging a release:
+
+* The work is split in two scripts, and the split is a security boundary, not a convenience: compiling and writing a disk image are different privileges.
+* `scripts/build-release.sh` compiles the Release configuration with `xcodebuild` into `build/` (predictable, git-ignored), keeps `build/xcodebuild.log` on success and failure, writes `.metadata_never_index` there so Spotlight does not offer a build copy next to the installed application, refuses a dirty tree unless `ALLOW_DIRTY=1`, and prints the application path on the last line. It creates no image, mounts nothing and needs no special permission.
+* `scripts/make-dmg.sh <app>` packages a bundle that already exists. It never calls `xcodebuild` and never starts a compiler. It validates the bundle (`.app`, `Contents/Info.plist`, the executable the plist names, `CFBundleShortVersionString`), verifies it with `codesign --verify --strict` (no `--deep`: the bundle carries no nested code, so a strict bundle check is what applies), copies it with `ditto` **without modifying the original**, adds the `/Applications` symlink, compresses, runs `hdiutil verify`, and then writes the image plus `.sha256` and `.build.txt`.
+* By default the image is mounted under a private temporary directory: never `/Volumes`, so no mount point can be left behind and nothing is registered with LaunchServices. The default image therefore has no `.DS_Store` and Finder shows its plain window. That is the accepted trade-off of not requiring Automation.
+* `--pretty` is the only path that uses Finder. It cannot mount under a fixed name, because `/Volumes` is not writable by a normal user and a fixed name would allow a collision with a volume someone else mounted; the image therefore gets a unique volume name for the run, the window is arranged with AppleScript against that name, the volume is renamed to `Google Cast Player` and only then is the icon set and the image detached. If Automation is denied the image is still produced with the default layout, the script says which of the two happened, and the background picture it had staged is removed again: a file nothing displays is not left inside the image.
+* The volume is detached by the device `hdiutil` reports for the image this run created, never by a path this script assumed: a detach cannot reach a volume it did not mount, and a mount that lands somewhere unexpected stops the run instead of being used.
+* `--force` is required to replace existing artifacts. Without it the script lists the files in the way and stops, so a release artifact is never overwritten by accident.
+* Neither script uses `sudo`, changes a macOS security setting, touches the TCC database, installs a background service, or reaches the network. The packaging script never modifies files outside its own temporary directory and `dist/`.
+* The packaging script was exercised on 2026-11-26 against a bundle already present inside a previously built image, so no compilation was involved: the refusal without `--force`, creation with `--force`, `hdiutil verify`, the mount, the `/Applications` symlink, the signature of the bundled application and the checksum all passed. The `--pretty` path was not exercised in that run.
+* Attach the image and its `.sha256` to the GitHub release, and give the release the commit recorded in `.build.txt`.
 
 Manual checks (require a graphical session and cannot be automated on this machine):
 
@@ -248,6 +261,9 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-26 | fix/receiver-stop-position | Resume after a device-side receiver stop keeps its position; found by the maintainer testing the Google Home session removal | 187 tests passed in Debug (the new test failed before the fix), Release build succeeded | 92fea8d |
 | 2026-11-26 | fix/receiver-stop-position | Resume rewinds three seconds before the stop position, so the scene context comes back | 188 tests passed in Debug, Release build succeeded; gga passed | e6e5229 |
 | 2026-11-26 | dev | Integrated the receiver-stop-position branch, approved by the maintainer after testing the resume | 188 tests re-run on dev after the merge | a2ceab1 |
+| 2026-11-26 | feature/readme-and-packaging | README rewritten for a non-technical audience (agents, requirements, installation, tested devices, technology), Apache 2.0 corrected in three documents, release packaging with a drag-to-Applications disk image, generated application icon, product named "Google Cast Player" | Disk image built, mounted and inspected (window layout, volume icon, bundle contents); 188 tests pass; nothing tagged, pushed or published | b6b8636..d5dee8e (branch range) |
+| 2026-11-26 | dev | Integrated the readme-and-packaging branch, approved by the maintainer | 188 tests re-run on dev after the merge | 2bcb033 |
+| 2026-11-26 | dev | Native review approved the packaging range; its advisory findings are fixed: checksum published and documented, dirty tree refused, names derived from PRODUCT_NAME, explicit mount point with detach before cleanup, re-runnable convert, image verified, build log kept, Finder failures diagnosed, artwork generators merged | 188 tests pass; both artwork modes reproduce the committed assets byte for byte; the packaging script was not run by the agent (the maintainer runs it) | 9dcfe46 |
 
 8. Blockers and Risks
 No active blocker.
