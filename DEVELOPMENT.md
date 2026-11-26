@@ -4,8 +4,8 @@ Google Cast Player — Development
 Overall status: Phase 0 to Phase 7 on main and verified on a physical device; the Phase 8 release candidate is integrated into dev, with the release decision pending.
 Current development phase: Phase 8 — Stabilization and MVP Release (release candidate 1.0.0 integrated into dev; release approval pending).
 Current milestone: The release decision: signing, notarization and version tagging.
-Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev; feature/sleep-and-reconnect (Phase 8), created from main at 565f112 and merged into dev; feature/volume-control (Phase 8), created from dev at 2026-11-26 and merged into dev.
-Current working branch: dev; feature work happens on feature/<name> branches. feature/volume-control, created from dev at the maintainer's explicit request on 2026-11-26, is integrated into dev.
+Current feature branches: feature/release-stabilization (Phase 8), created from main at be69da3 and merged into dev; feature/sleep-and-reconnect (Phase 8), created from main at 565f112 and merged into dev; feature/volume-control (Phase 8) and fix/receiver-stop-position, both created from dev on 2026-11-26 and merged into dev.
+Current working branch: dev; feature work happens on feature/<name> branches. feature/volume-control and fix/receiver-stop-position, both created from dev at the maintainer's request, are integrated into dev.
 Last verified commit: main is 565f112; feature commits are listed in section 7.
 Last verified build: Debug build succeeded with xcodebuild on 2026-11-25 (see section 6).
 Last verified test run: 188 unit tests passed with xcodebuild on 2026-11-26 (see section 6).
@@ -247,6 +247,7 @@ The log is chronological: each row records what happened on that date, not the c
 | 2026-11-26 | dev | Integrated the volume-control branch, approved by the maintainer after testing the volume and mute controls | 186 tests re-run on dev after the merge | cb3c9b0 |
 | 2026-11-26 | fix/receiver-stop-position | Resume after a device-side receiver stop keeps its position; found by the maintainer testing the Google Home session removal | 187 tests passed in Debug (the new test failed before the fix), Release build succeeded | 92fea8d |
 | 2026-11-26 | fix/receiver-stop-position | Resume rewinds three seconds before the stop position, so the scene context comes back | 188 tests passed in Debug, Release build succeeded; gga passed | e6e5229 |
+| 2026-11-26 | dev | Integrated the receiver-stop-position branch, approved by the maintainer after testing the resume | 188 tests re-run on dev after the merge | see section 1 |
 
 8. Blockers and Risks
 No active blocker.
